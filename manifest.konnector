@@ -78,7 +78,9 @@
   "features": [
     "LOGIN_OK",
     "METADATA_DEDUP",
-    "2FA"
+    "2FA",
+    "CARBON_COPY",
+    "DOC_QUALIFICATION_V2"
   ],
   "manifest_version": "2"
 }
