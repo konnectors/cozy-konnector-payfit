@@ -6,8 +6,13 @@ const {
   BaseKonnector,
   log,
   requestFactory,
-  errors
+  errors,
+  utils,
+  cozyClient
 } = require('cozy-konnector-libs')
+
+const models = cozyClient.new.models
+const { Qualification } = models.document
 
 const request = requestFactory({
   // debug: true,
@@ -168,7 +173,19 @@ function convertPayrollsToCozy(payrolls, companyName) {
       fileurl: `https://api.payfit.com/files/file/${id}?attachment=1`,
       filename,
       vendorId: id,
-      recurrence: 'monthly'
+      recurrence: 'monthly',
+      fileAttributes: {
+        metadata: {
+          datetime: date.periodStart,
+          datetimeLabel: `startDate`,
+          contentAuthor: 'https://payfit.com',
+          startDate: date.periodStart,
+          endDate: date.periodEnd,
+          issueDate: utils.formatDate(date),
+          carbonCopy: true,
+          qualification: Qualification.getByLabel('pay_sheet')
+        }
+      }
     }
   })
 }
