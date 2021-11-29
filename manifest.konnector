@@ -75,10 +75,14 @@
       }
     }
   },
+  "qualification_labels":[
+    "pay_sheet"
+  ],
   "features": [
     "LOGIN_OK",
     "METADATA_DEDUP",
-    "2FA"
+    "2FA",
+    "SENTRY_V2"
   ],
   "manifest_version": "2"
 }
