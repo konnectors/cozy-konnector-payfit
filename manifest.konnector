@@ -91,6 +91,7 @@
     "LOGIN_OK",
     "METADATA_DEDUP",
     "2FA",
+    "VENDOR_REF',
     "CARBON_COPY",
     "DOC_QUALIFICATION_V2",
     "SENTRY_V2"

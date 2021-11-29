@@ -178,7 +178,8 @@ function convertPayrollsToCozy(payrolls, companyName) {
         metadata: {
           datetime: date.periodStart,
           datetimeLabel: `startDate`,
-          contentAuthor: 'https://payfit.com',
+          contentAuthor: 'payfit.com',
+          vendorRef: id,
           startDate: date.periodStart,
           endDate: date.periodEnd,
           issueDate: utils.formatDate(date),
