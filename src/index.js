@@ -25,9 +25,7 @@ async function start(fields) {
   await this.deactivateAutoSuccessfulLogin()
   await authenticate.bind(this)(fields)
   await this.notifySuccessfulLogin()
-  const accounts = await request(
-    'https://api.payfit.com/hr/individuals/accounts/list'
-  )
+  const accounts = await request('https://api.payfit.com/auth/accounts')
 
   for (const account of accounts) {
     // only handle employee accounts
