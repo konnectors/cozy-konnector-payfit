@@ -1,5 +1,5 @@
 {
-  "version": "1.12.1",
+  "version": "1.13.0",
   "name": "Payfit",
   "type": "konnector",
   "language": "node",
@@ -38,6 +38,9 @@
     "files": {
       "type": "io.cozy.files"
     },
+    "carbon_copy": {
+      "type": "io.cozy.certified.carbon_copy"
+    },
     "accounts": {
       "type": "io.cozy.accounts"
     }
@@ -57,6 +60,9 @@
         "files": {
           "description": "Utilisé pour sauvegarder les fiches de paye"
         },
+        "carbon_copy": {
+          "description": "Utilisé pour certifier que vos fichiers sont copie conforme avec les documents d'origine"
+        },
         "accounts": {
           "description": "Utilisé pour obtenir les données du compte"
         }
@@ -69,16 +75,25 @@
         "files": {
           "description": "Required to save the salary statements"
         },
+        "carbon_copy": {
+          "description": "Required for carbon copy documents"
+        },
         "accounts": {
           "description": "Required to get the account's data"
         }
       }
     }
   },
+  "qualification_labels":[
+    "pay_sheet"
+  ],
   "features": [
     "LOGIN_OK",
     "METADATA_DEDUP",
-    "2FA"
+    "2FA",
+    "CARBON_COPY",
+    "DOC_QUALIFICATION_V2",
+    "SENTRY_V2"
   ],
   "manifest_version": "2"
 }
