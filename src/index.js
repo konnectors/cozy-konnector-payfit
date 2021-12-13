@@ -170,7 +170,7 @@ function convertPayrollsToCozy(payrolls, companyName) {
       date: moment(date).format('YYYY-MM-DD'),
       fileurl: `https://api.payfit.com/files/file/${id}?attachment=1`,
       filename,
-      // We keep both vendorID & vendorRef for example purposes
+      // We keep both vendorID & vendorRef for historical purposes
       vendorId: id,
       vendorRef: id,
       recurrence: 'monthly',
