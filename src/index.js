@@ -66,19 +66,12 @@ async function fetchAccount(fields, account) {
         .map(data => data.trim().replace(/\s\s+/g, ' '))
 
       const amount = parseFloat(
-        values
-          .shift()
-          .replace(/\s/g, '')
-          .replace(',', '.')
+        values.shift().replace(/\s/g, '').replace(',', '.')
       )
       const date = moment(values.join(' '), 'DD MMMM YYYY').toDate()
       Object.assign(entry, {
-        periodStart: moment(entry.date)
-          .startOf('month')
-          .format('YYYY-MM-DD'),
-        periodEnd: moment(entry.date)
-          .endOf('month')
-          .format('YYYY-MM-DD'),
+        periodStart: moment(entry.date).startOf('month').format('YYYY-MM-DD'),
+        periodEnd: moment(entry.date).endOf('month').format('YYYY-MM-DD'),
         date,
         amount,
         vendor: 'Payfit',
