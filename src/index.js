@@ -7,7 +7,6 @@ const {
   log,
   requestFactory,
   errors,
-  utils,
   cozyClient
 } = require('cozy-konnector-libs')
 
@@ -52,36 +51,44 @@ async function fetchAccount(fields, account) {
     linkBankOperations: false,
     fileIdAttributes: ['vendorId'],
     processPdf: (entry, text) => {
-      const matchedStrings = text
-        .split('\n')
-        .join(' ')
-        .match(
-          /NET +À +PAYER.*VIREMEN *T(.*)DATE +DE +P *AIEMEN *T(.*)([0-9]{4}).*SOLDE CP/
+      const formatedText = text.split('\n').join(' ').replace(/ /g, '')
+
+      if (
+        formatedText.match(
+          /VIREMENT([0-9,]*)DATEDEPAIEMENT([0-9]{2})(JANVIER|FÉVRIER|MARS|AVRIL|MAI|JUIN|JUILLET|AOÛT|SEPTEMBRE|OCTOBRE|NOVEMBRE|DÉCEMBRE)([0-9]{4})/
         )
-      if (!matchedStrings) {
+      ) {
+        const matchedStrings = text
+          .split('\n')
+          .join(' ')
+          .replace(/ /g, '')
+          .match(
+            /VIREMENT([0-9,]*)DATEDEPAIEMENT([0-9]{2})(JANVIER|FÉVRIER|MARS|AVRIL|MAI|JUIN|JUILLET|AOÛT|SEPTEMBRE|OCTOBRE|NOVEMBRE|DÉCEMBRE)([0-9]{4})/
+          )
+        const values = matchedStrings
+          .slice(1)
+          .map(data => data.trim().replace(/\s\s+/g, ' '))
+        const amount = parseFloat(
+          values.shift().replace(/\s/g, '').replace(',', '.')
+        )
+        const date = moment(values.join(' '), 'DD MMMM YYYY').toDate()
+
+        Object.assign(entry, {
+          periodStart: moment(entry.date).startOf('month').format('YYYY-MM-DD'),
+          periodEnd: moment(entry.date).endOf('month').format('YYYY-MM-DD'),
+          date,
+          amount,
+          vendor: 'Payfit',
+          type: 'pay',
+          employer: companyName,
+          matchingCriterias: {
+            labelRegex: `\\b${companyName}\\b`
+          },
+          isRefund: true
+        })
+      } else {
         throw new Error('no matched string in pdf')
       }
-      const values = matchedStrings
-        .slice(1)
-        .map(data => data.trim().replace(/\s\s+/g, ' '))
-
-      const amount = parseFloat(
-        values.shift().replace(/\s/g, '').replace(',', '.')
-      )
-      const date = moment(values.join(' '), 'DD MMMM YYYY').toDate()
-      Object.assign(entry, {
-        periodStart: moment(entry.date).startOf('month').format('YYYY-MM-DD'),
-        periodEnd: moment(entry.date).endOf('month').format('YYYY-MM-DD'),
-        date,
-        amount,
-        vendor: 'Payfit',
-        type: 'pay',
-        employer: companyName,
-        matchingCriterias: {
-          labelRegex: `\\b${companyName}\\b`
-        },
-        isRefund: true
-      })
     }
   })
 }
@@ -168,13 +175,10 @@ function convertPayrollsToCozy(payrolls, companyName) {
       vendorRef: id,
       recurrence: 'monthly',
       fileAttributes: {
+        // Here the website doesn't provide the awaited datas anymore, but they can be found in the dowloaded pdf during saveBills().
         metadata: {
-          datetime: date.periodStart,
-          datetimeLabel: `startDate`,
           contentAuthor: 'payfit.com',
-          startDate: date.periodStart,
-          endDate: date.periodEnd,
-          issueDate: utils.formatDate(date),
+          issueDate: new Date(),
           carbonCopy: true,
           qualification: Qualification.getByLabel('pay_sheet')
         }
