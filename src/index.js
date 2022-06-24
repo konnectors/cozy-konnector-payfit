@@ -165,7 +165,9 @@ function convertPayrollsToCozy(payrolls, companyName) {
   log('info', 'Converting payrolls to cozy...')
   return payrolls.map(({ id, absoluteMonth }) => {
     const date = getDateFromAbsoluteMonth(absoluteMonth)
-    const filename = `${companyName}_${format(date, 'yyyy_MM')}.pdf`
+    const filename = `${companyName}_${format(date, 'yyyy_MM')}_${id.slice(
+      -5
+    )}.pdf`
     return {
       date: moment(date).format('YYYY-MM-DD'),
       fileurl: `https://api.payfit.com/files/file/${id}?attachment=1`,
