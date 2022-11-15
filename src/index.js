@@ -53,6 +53,7 @@ async function fetchAccount(fields, account) {
     processPdf: (entry, text) => {
       const formatedText = text.split('\n').join(' ').replace(/ /g, '')
 
+      // Extract PDF data before 06-2022
       if (
         formatedText.match(
           /VIREMENT([0-9,]*)DATEDEPAIEMENT([0-9]{2})(JANVIER|FÉVRIER|MARS|AVRIL|MAI|JUIN|JUILLET|AOÛT|SEPTEMBRE|OCTOBRE|NOVEMBRE|DÉCEMBRE)([0-9]{4})/
@@ -86,6 +87,29 @@ async function fetchAccount(fields, account) {
           },
           isRefund: true
         })
+      // Extract PDF data after 06-2022
+      } else if (formatedText.match(/\(Virement\)[\s,0-9,+,-]+=\s+([0-9,]+)/)
+                && formatedText.match(/Datedepaiement\s*([0-9]{1,2}\/[0-9]{2}\/[0-9]{4})/)) {
+        const amountStg = formatedText.match(/\(Virement\)[\s,0-9,+,-]+=\s+([0-9,]+)/)[1]
+        const amount = parseFloat(amountStg.replace(',','.'))
+        const dateStg = formatedText
+              .match(/Datedepaiement\s*([0-9]{1,2}\/[0-9]{2}\/[0-9]{4})/)[1]
+        const date = moment(dateStg, 'DD/MM/YYYY').toDate()
+
+        Object.assign(entry, {
+          periodStart: moment(entry.date).startOf('month').format('YYYY-MM-DD'),
+          periodEnd: moment(entry.date).endOf('month').format('YYYY-MM-DD'),
+          date,
+          amount,
+          vendor: 'Payfit',
+          type: 'pay',
+          employer: companyName,
+          matchingCriterias: {
+            labelRegex: `\\b${companyName}\\b`
+          },
+          isRefund: true
+        })
+
       } else {
         throw new Error('no matched string in pdf')
       }
