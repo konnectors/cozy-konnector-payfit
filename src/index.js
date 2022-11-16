@@ -87,13 +87,18 @@ async function fetchAccount(fields, account) {
           },
           isRefund: true
         })
-      // Extract PDF data after 06-2022
-      } else if (formatedText.match(/\(Virement\)[\s,0-9,+,-]+=\s+([0-9,]+)/)
-                && formatedText.match(/Datedepaiement\s*([0-9]{1,2}\/[0-9]{2}\/[0-9]{4})/)) {
-        const amountStg = formatedText.match(/\(Virement\)[\s,0-9,+,-]+=\s+([0-9,]+)/)[1]
-        const amount = parseFloat(amountStg.replace(',','.'))
-        const dateStg = formatedText
-              .match(/Datedepaiement\s*([0-9]{1,2}\/[0-9]{2}\/[0-9]{4})/)[1]
+        // Extract PDF data after 06-2022
+      } else if (
+        formatedText.match(/\(Virement\)[\s,0-9,+,-]+=\s+([0-9,]+)/) &&
+        formatedText.match(/Datedepaiement\s*([0-9]{1,2}\/[0-9]{2}\/[0-9]{4})/)
+      ) {
+        const amountStg = formatedText.match(
+          /\(Virement\)[\s,0-9,+,-]+=\s+([0-9,]+)/
+        )[1]
+        const amount = parseFloat(amountStg.replace(',', '.'))
+        const dateStg = formatedText.match(
+          /Datedepaiement\s*([0-9]{1,2}\/[0-9]{2}\/[0-9]{4})/
+        )[1]
         const date = moment(dateStg, 'DD/MM/YYYY').toDate()
 
         Object.assign(entry, {
@@ -109,7 +114,6 @@ async function fetchAccount(fields, account) {
           },
           isRefund: true
         })
-
       } else {
         throw new Error('no matched string in pdf')
       }
