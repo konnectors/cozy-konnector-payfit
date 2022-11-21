@@ -40,11 +40,7 @@ module.exports = {
       patterns: [
         { from: './node_modules/pdfjs-dist/build/pdf.worker.js' },
         { from: 'manifest.konnector' },
-        { from: 'package.json' },
-        { from: 'README.md' },
-        { from: 'assets', transform: optimizeSVGIcon },
-        { from: '.travis.yml' },
-        { from: 'LICENSE' }
+        { from: 'assets', transform: optimizeSVGIcon }
       ]
     }),
     new webpack.DefinePlugin({
