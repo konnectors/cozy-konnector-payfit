@@ -47,6 +47,7 @@ module.exports = {
   plugins: [
     new CopyPlugin({
       patterns: [
+        { from: './node_modules/pdfjs-dist/build/pdf.worker.js' },
         { from: 'manifest.konnector' },
         { from: 'assets', transform: optimizeSVGIcon, noErrorOnMissing: true }
       ]
