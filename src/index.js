@@ -158,9 +158,8 @@ async function authenticate({ login, password }) {
     return body
   } catch (err) {
     if (
-      err.statusCode === 401 &&
-      err.error &&
-      err.error.error === 'invalid_password'
+      err.statusCode === 400 &&
+      err.error?.error === 'invalid_password_or_email'
     ) {
       throw new Error(errors.LOGIN_FAILED)
     } else {
