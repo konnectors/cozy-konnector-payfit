@@ -139,7 +139,12 @@ async function authenticate({ login, password }) {
     })
     if (body.isMultiFactorRequired) {
       log('info', '2FA detected')
-      const code = await this.waitForTwoFaCode({ type: 'sms' })
+      let code
+      if (body.type === 'mail') {
+        code = await this.waitForTwoFaCode({ type: 'email' })
+      } else {
+        code = await this.waitForTwoFaCode({ type: 'sms' })
+      }
       body = await request.post({
         uri: 'https://api.payfit.com/auth/signin',
         body: {
