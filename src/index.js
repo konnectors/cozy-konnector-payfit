@@ -117,6 +117,11 @@ async function fetchAccount(fields, account) {
       } else {
         throw new Error('no matched string in pdf')
       }
+    },
+    shouldReplaceFile: function (newBill, dbEntry) {
+      const result =
+        newBill.metadata.issueDate !== dbEntry.fileAttributes.metadata.issueDate
+      return result
     }
   })
 }
