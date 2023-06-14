@@ -117,6 +117,11 @@ async function fetchAccount(fields, account) {
       } else {
         throw new Error('no matched string in pdf')
       }
+    },
+    shouldReplaceFile: function (newBill, dbEntry) {
+      const result =
+        newBill.metadata.issueDate !== dbEntry.fileAttributes.metadata.issueDate
+      return result
     }
   })
 }
@@ -195,7 +200,7 @@ async function fetchPayrolls({ employeeId, companyId }) {
 
 function convertPayrollsToCozy(payrolls, companyName) {
   log('info', 'Converting payrolls to cozy...')
-  return payrolls.map(({ id, absoluteMonth }) => {
+  return payrolls.map(({ id, absoluteMonth, createdAt }) => {
     const date = getDateFromAbsoluteMonth(absoluteMonth)
     const filename = `${companyName}_${format(date, 'yyyy_MM')}_${id.slice(
       -5
@@ -212,7 +217,9 @@ function convertPayrollsToCozy(payrolls, companyName) {
         // Here the website doesn't provide the awaited datas anymore, but they can be found in the dowloaded pdf during saveBills().
         metadata: {
           contentAuthor: 'payfit.com',
-          issueDate: new Date(),
+          // It seems like some infos appears and disapears through time. Until now we were using the "today" date because the creation date was missing (see comment above).
+          // But now it's given for each documents in the received data, so we can use it.
+          issueDate: new Date(createdAt),
           carbonCopy: true,
           qualification: Qualification.getByLabel('pay_sheet')
         }
