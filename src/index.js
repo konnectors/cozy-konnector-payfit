@@ -1,24 +1,12 @@
 import { ContentScript } from 'cozy-clisk/dist/contentscript'
 import Minilog from '@cozy/minilog'
 const log = Minilog('ContentScript')
-Minilog.enable()
-
-const baseUrl = 'https://toscrape.com'
-const defaultSelector = "a[href='http://quotes.toscrape.com']"
-const loginLinkSelector = `[href='/login']`
-const logoutLinkSelector = `[href='/logout']`
+Minilog.enable('payfitCCC')
 
 class TemplateContentScript extends ContentScript {
   async navigateToLoginForm() {
     this.log('info', '🤖 navigateToLoginForm')
-    await this.goto(baseUrl)
-    await this.waitForElementInWorker(defaultSelector)
-    await this.runInWorker('click', defaultSelector)
-    // wait for both logout or login link to be sure to check authentication when ready
-    await Promise.race([
-      this.waitForElementInWorker(loginLinkSelector),
-      this.waitForElementInWorker(logoutLinkSelector)
-    ])
+    
   }
 
   onWorkerEvent({ event, payload }) {
@@ -57,9 +45,6 @@ class TemplateContentScript extends ContentScript {
     if (!authenticated) {
       return true
     }
-
-    await this.clickAndWait(logoutLinkSelector, loginLinkSelector)
-    return true
   }
 
   onWorkerReady() {
@@ -81,30 +66,16 @@ class TemplateContentScript extends ContentScript {
   }
 
   async checkAuthenticated() {
-    return Boolean(document.querySelector(logoutLinkSelector))
+    return Boolean(document.querySelector())
   }
 
   async showLoginFormAndWaitForAuthentication() {
     log.debug('showLoginFormAndWaitForAuthentication start')
-    await this.clickAndWait(loginLinkSelector, '#username')
     await this.setWorkerState({ visible: true })
     await this.runInWorkerUntilTrue({
       method: 'waitForAuthenticated'
     })
     await this.setWorkerState({ visible: false })
-  }
-
-  async fetch(context) {
-    this.log('info', '🤖 fetch')
-    await this.goto('https://books.toscrape.com')
-    await this.waitForElementInWorker('#promotions')
-    const bills = await this.runInWorker('parseBills')
-
-    await this.saveFiles(bills, {
-      contentType: 'image/jpeg',
-      fileIdAttributes: ['filename'],
-      context
-    })
   }
 
   async getUserDataFromWebsite() {
@@ -114,24 +85,12 @@ class TemplateContentScript extends ContentScript {
     }
   }
 
-  async parseBills() {
-    const articles = document.querySelectorAll('article')
-    return Array.from(articles).map(article => ({
-      amount: normalizePrice(article.querySelector('.price_color')?.innerHTML),
-      filename: article.querySelector('h3 a')?.getAttribute('title'),
-      fileurl:
-        'https://books.toscrape.com/' +
-        article.querySelector('img')?.getAttribute('src')
-    }))
+  async fetch(context) {
+    this.log('info', '🤖 fetch')
   }
 }
 
-// Convert a price string to a float
-function normalizePrice(price) {
-  return parseFloat(price.replace('£', '').trim())
-}
-
 const connector = new TemplateContentScript()
-connector.init({ additionalExposedMethodsNames: ['parseBills'] }).catch(err => {
+connector.init({ additionalExposedMethodsNames: [] }).catch(err => {
   log.warn(err)
 })
