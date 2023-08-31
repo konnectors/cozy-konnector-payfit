@@ -1,15 +1,15 @@
 {
-  "version": "1.0.0",
-  "name": "Template",
+  "version": "2.0.0",
+  "name": "Payfit",
   "type": "konnector",
   "language": "node",
   "icon": "icon.svg",
-  "slug": "template",
-  "source": "git@github.com:konnectors/template_ccc.git",
+  "slug": "payfit",
+  "source": "git@github.com:konnectors/cozy-konnector-payfit.git",
   "editor": "Cozy",
-  "vendor_link": "https://books.toscrape.com/",
+  "vendor_link": "https://app.payfit.com/",
   "categories": [
-    "transport"
+    "others"
   ],
   "fields": { },
   "clientSide": true,
@@ -27,20 +27,58 @@
     },
     "files": {
       "type": "io.cozy.files"
+    },
+    "carbon_copy": {
+      "type": "io.cozy.certified.carbon_copy"
+    },
+    "identities": {
+      "type": "io.cozy.identities"
     }
   },
   "locales": {
     "fr": {
-      "short_description": "Récupère la liste de livres",
-      "long_description": "Récupère la liste de livre sur le site exemple",
+      "short_description": "Récupère vos fiches de paie Payfit.",
+      "long_description": "Récupère vos fiches de paie Payfit.",
       "permissions": {
+        "carboncopy": {
+          "description": "Utilisé pour certifier que vos fichiers sont copie conforme avec les documents d'origine"
+        },
         "bills": {
-          "description": "Utilisé pour sauver les données des factures"
+          "description": "Utilisé pour sauver les données des fiches de paie"
         },
         "files": {
-          "description": "Utilisé pour sauvegarder les factures"
+          "description": "Utilisé pour sauvegarder les fiches de paie"
+        },
+        "identities": {
+          "description": "Utilisé pour sauvegarder l'identité de l'utilisateur"
+        }
+      }
+    },
+    "en": {
+      "short_description": "Fetch a list of Payfit payslips.",
+      "long_description": "Fetch a list of Payfit payslips.",
+      "permissions": {
+        "carboncopy": {
+          "description": "Required for carbon copy documents"
+        },
+        "bills": {
+          "description": "Required to save the bills data"
+        },
+        "files": {
+          "description": "Required to save the bills"
+        },
+        "identities": {
+          "description": "Required to save the user identity"
         }
       }
     }
-  }
+  },
+  "qualification_labels": [
+    "pay_sheet"
+  ],
+  "features": [
+    "METADATA_DEDUP",
+    "CARBON_COPY",
+    "DOC_QUALIFICATION_V2"
+  ]
 }
