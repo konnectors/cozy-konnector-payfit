@@ -1,100 +1,46 @@
 {
-  "version": "1.23.0",
-  "name": "Payfit",
+  "version": "1.0.0",
+  "name": "Template",
   "type": "konnector",
   "language": "node",
   "icon": "icon.svg",
-  "slug": "payfit",
-  "source": "git@github.com:konnectors/cozy-konnector-payfit.git",
+  "slug": "template",
+  "source": "git@github.com:konnectors/template_ccc.git",
   "editor": "Cozy",
-  "vendor_link": "https://app.payfit.com/",
+  "vendor_link": "https://books.toscrape.com/",
   "categories": [
-    "others"
+    "transport"
   ],
-  "fields": {
-    "login": {
-      "type": "text"
-    },
-    "password": {
-      "type": "password"
-    },
-    "advancedFields": {
-      "folderPath": {
-        "advanced": true,
-        "isRequired": false
-      }
+  "fields": { },
+  "clientSide": true,
+  "langs": [
+    "fr"
+  ],
+  "folders": [
+    {
+      "defaultDir": "$administrative/$konnector/$account"
     }
-  },
-  "data_types": [
-    "document"
   ],
   "permissions": {
-    "bank operations": {
-      "type": "io.cozy.bank.operations"
-    },
     "bills": {
       "type": "io.cozy.bills"
     },
     "files": {
       "type": "io.cozy.files"
-    },
-    "carbon_copy": {
-      "type": "io.cozy.certified.carbon_copy"
-    },
-    "accounts": {
-      "type": "io.cozy.accounts"
     }
   },
-  "developer": {
-    "name": "Paul Tran-Van",
-    "url": "https://github.com/Gara64"
-  },
-  "langs": [
-    "fr"
-  ],
   "locales": {
     "fr": {
-      "short_description": "Récupérer vos données Payfit dans votre Cozy",
-      "long_description": "Ce fournisseur vous permettra de récupérer l'ensemble de vos documents Payfit dans votre Cozy.",
+      "short_description": "Récupère la liste de livres",
+      "long_description": "Récupère la liste de livre sur le site exemple",
       "permissions": {
+        "bills": {
+          "description": "Utilisé pour sauver les données des factures"
+        },
         "files": {
-          "description": "Utilisé pour sauvegarder les fiches de paye"
-        },
-        "carbon_copy": {
-          "description": "Utilisé pour certifier que vos fichiers sont copie conforme avec les documents d'origine"
-        },
-        "accounts": {
-          "description": "Utilisé pour obtenir les données du compte"
-        }
-      }
-    },
-    "en": {
-      "short_description": "Fetch your Payfit data in your Cozy",
-      "long_description": "This provider will allow you to fetch all your Payfit documents in your Cozy.",
-      "permissions": {
-        "files": {
-          "description": "Required to save the salary statements"
-        },
-        "carbon_copy": {
-          "description": "Required for carbon copy documents"
-        },
-        "accounts": {
-          "description": "Required to get the account's data"
+          "description": "Utilisé pour sauvegarder les factures"
         }
       }
     }
-  },
-  "qualification_labels": [
-    "pay_sheet"
-  ],
-  "features": [
-    "LOGIN_OK",
-    "METADATA_DEDUP",
-    "2FA",
-    "VENDOR_REF",
-    "CARBON_COPY",
-    "DOC_QUALIFICATION_V2",
-    "SENTRY_V2"
-  ],
-  "manifest_version": "2"
+  }
 }

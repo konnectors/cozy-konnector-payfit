@@ -1,234 +1,137 @@
-process.env.SENTRY_DSN =
-  process.env.SENTRY_DSN ||
-  'https://75ba75b6017a473fb5a5bd25f5118dec@errors.cozycloud.cc/15'
+import { ContentScript } from 'cozy-clisk/dist/contentscript'
+import Minilog from '@cozy/minilog'
+const log = Minilog('ContentScript')
+Minilog.enable()
 
-const {
-  BaseKonnector,
-  log,
-  requestFactory,
-  errors,
-  cozyClient
-} = require('cozy-konnector-libs')
+const baseUrl = 'https://toscrape.com'
+const defaultSelector = "a[href='http://quotes.toscrape.com']"
+const loginLinkSelector = `[href='/login']`
+const logoutLinkSelector = `[href='/logout']`
 
-const models = cozyClient.new.models
-const { Qualification } = models.document
-
-const request = requestFactory({
-  // debug: true,
-  json: true,
-  jar: true
-})
-
-const { format } = require('date-fns')
-const moment = require('moment')
-const crypto = require('crypto')
-
-module.exports = new BaseKonnector(start)
-
-async function start(fields) {
-  await this.deactivateAutoSuccessfulLogin()
-  await authenticate.bind(this)(fields)
-  await this.notifySuccessfulLogin()
-  const accounts = await request('https://api.payfit.com/auth/accounts')
-
-  for (const account of accounts) {
-    // only handle employee accounts
-    if (account.account.userRole !== 'employee') continue
-    await fetchAccount.bind(this)(fields, account)
+class TemplateContentScript extends ContentScript {
+  async navigateToLoginForm() {
+    this.log('info', '🤖 navigateToLoginForm')
+    await this.goto(baseUrl)
+    await this.waitForElementInWorker(defaultSelector)
+    await this.runInWorker('click', defaultSelector)
+    // wait for both logout or login link to be sure to check authentication when ready
+    await Promise.race([
+      this.waitForElementInWorker(loginLinkSelector),
+      this.waitForElementInWorker(logoutLinkSelector)
+    ])
   }
-}
 
-async function fetchAccount(fields, account) {
-  const { companyId, employeeId } = account.account
-  await request('https://api.payfit.com/auth/updateCurrentAccount', {
-    qs: { companyId, employeeId }
-  })
-  const payrolls = await fetchPayrolls({ companyId, employeeId })
-  const { companyName } = await fetchProfileInfo()
-  const documents = convertPayrollsToCozy(payrolls, companyName)
-  moment.locale('fr')
-  await this.saveBills(documents, fields, {
-    linkBankOperations: false,
-    fileIdAttributes: ['vendorId'],
-    processPdf: (entry, text) => {
-      const formatedText = text.split('\n').join(' ').replace(/ /g, '')
-
-      // Extract PDF data before 06-2022
-      if (
-        formatedText.match(
-          /VIREMENT([0-9,]*)DATEDEPAIEMENT([0-9]{2})(JANVIER|FÉVRIER|MARS|AVRIL|MAI|JUIN|JUILLET|AOÛT|SEPTEMBRE|OCTOBRE|NOVEMBRE|DÉCEMBRE)([0-9]{4})/
-        )
-      ) {
-        const matchedStrings = text
-          .split('\n')
-          .join(' ')
-          .replace(/ /g, '')
-          .match(
-            /VIREMENT([0-9,]*)DATEDEPAIEMENT([0-9]{2})(JANVIER|FÉVRIER|MARS|AVRIL|MAI|JUIN|JUILLET|AOÛT|SEPTEMBRE|OCTOBRE|NOVEMBRE|DÉCEMBRE)([0-9]{4})/
-          )
-        const values = matchedStrings
-          .slice(1)
-          .map(data => data.trim().replace(/\s\s+/g, ' '))
-        const amount = parseFloat(
-          values.shift().replace(/\s/g, '').replace(',', '.')
-        )
-        const date = moment(values.join(' '), 'DD MMMM YYYY').toDate()
-
-        Object.assign(entry, {
-          periodStart: moment(entry.date).startOf('month').format('YYYY-MM-DD'),
-          periodEnd: moment(entry.date).endOf('month').format('YYYY-MM-DD'),
-          date,
-          amount,
-          vendor: 'Payfit',
-          type: 'pay',
-          employer: companyName,
-          matchingCriterias: {
-            labelRegex: `\\b${companyName}\\b`
-          },
-          isRefund: true
-        })
-        // Extract PDF data after 06-2022
-      } else if (
-        formatedText.match(/\(Virement\)[\s,0-9,+,-]+=\s+([0-9,]+)/) &&
-        formatedText.match(/Datedepaiement\s*([0-9]{1,2}\/[0-9]{2}\/[0-9]{4})/)
-      ) {
-        const amountStg = formatedText.match(
-          /\(Virement\)[\s,0-9,+,-]+=\s+([0-9,]+)/
-        )[1]
-        const amount = parseFloat(amountStg.replace(',', '.'))
-        const dateStg = formatedText.match(
-          /Datedepaiement\s*([0-9]{1,2}\/[0-9]{2}\/[0-9]{4})/
-        )[1]
-        const date = moment(dateStg, 'DD/MM/YYYY').toDate()
-
-        Object.assign(entry, {
-          periodStart: moment(entry.date).startOf('month').format('YYYY-MM-DD'),
-          periodEnd: moment(entry.date).endOf('month').format('YYYY-MM-DD'),
-          date,
-          amount,
-          vendor: 'Payfit',
-          type: 'pay',
-          employer: companyName,
-          matchingCriterias: {
-            labelRegex: `\\b${companyName}\\b`
-          },
-          isRefund: true
-        })
-      } else {
-        throw new Error('no matched string in pdf')
-      }
-    },
-    shouldReplaceFile: function (newBill, dbEntry) {
-      const result =
-        newBill.metadata.issueDate !== dbEntry.fileAttributes.metadata.issueDate
-      return result
+  onWorkerEvent({ event, payload }) {
+    if (event === 'loginSubmit') {
+      this.log('info', 'received loginSubmit, blocking user interactions')
+      this.blockWorkerInteractions()
+    } else if (event === 'loginError') {
+      this.log(
+        'info',
+        'received loginError, unblocking user interactions: ' + payload?.msg
+      )
+      this.unblockWorkerInteractions()
     }
-  })
-}
+  }
 
-async function authenticate({ login, password }) {
-  log('info', 'Login...')
-  try {
-    let body = await request.post({
-      uri: 'https://api.payfit.com/auth/signin',
-      body: {
-        s: '',
-        email: login,
-        password: crypto
-          .createHmac('sha256', password)
-          .update('')
-          .digest('hex'),
-        isHashed: true,
-        language: 'fr'
+  async ensureAuthenticated({ account }) {
+    this.bridge.addEventListener('workerEvent', this.onWorkerEvent.bind(this))
+    this.log('info', '🤖 ensureAuthenticated')
+    if (!account) {
+      await this.ensureNotAuthenticated()
+    }
+    await this.navigateToLoginForm()
+    const authenticated = await this.runInWorker('checkAuthenticated')
+    if (!authenticated) {
+      this.log('info', 'Not authenticated')
+      await this.showLoginFormAndWaitForAuthentication()
+    }
+    this.unblockWorkerInteractions()
+    return true
+  }
+
+  async ensureNotAuthenticated() {
+    this.log('info', '🤖 ensureNotAuthenticated')
+    await this.navigateToLoginForm()
+    const authenticated = await this.runInWorker('checkAuthenticated')
+    if (!authenticated) {
+      return true
+    }
+
+    await this.clickAndWait(logoutLinkSelector, loginLinkSelector)
+    return true
+  }
+
+  onWorkerReady() {
+    window.addEventListener('DOMContentLoaded', () => {
+      const button = document.querySelector('input[type=submit]')
+      if (button) {
+        button.addEventListener('click', () =>
+          this.bridge.emit('workerEvent', { event: 'loginSubmit' })
+        )
+      }
+      const error = document.querySelector('.error')
+      if (error) {
+        this.bridge.emit('workerEvent', {
+          event: 'loginError',
+          payload: { msg: error.innerHTML }
+        })
       }
     })
-    if (body.isMultiFactorRequired) {
-      log('info', '2FA detected')
-      let code
-      if (body.type === 'mail') {
-        code = await this.waitForTwoFaCode({ type: 'email' })
-      } else {
-        code = await this.waitForTwoFaCode({ type: 'sms' })
-      }
-      body = await request.post({
-        uri: 'https://api.payfit.com/auth/signin',
-        body: {
-          s: '',
-          email: login,
-          password: crypto
-            .createHmac('sha256', password)
-            .update('')
-            .digest('hex'),
-          isHashed: true,
-          multiFactorCode: code,
-          language: 'fr'
-        }
-      })
+  }
+
+  async checkAuthenticated() {
+    return Boolean(document.querySelector(logoutLinkSelector))
+  }
+
+  async showLoginFormAndWaitForAuthentication() {
+    log.debug('showLoginFormAndWaitForAuthentication start')
+    await this.clickAndWait(loginLinkSelector, '#username')
+    await this.setWorkerState({ visible: true })
+    await this.runInWorkerUntilTrue({
+      method: 'waitForAuthenticated'
+    })
+    await this.setWorkerState({ visible: false })
+  }
+
+  async fetch(context) {
+    this.log('info', '🤖 fetch')
+    await this.goto('https://books.toscrape.com')
+    await this.waitForElementInWorker('#promotions')
+    const bills = await this.runInWorker('parseBills')
+
+    await this.saveFiles(bills, {
+      contentType: 'image/jpeg',
+      fileIdAttributes: ['filename'],
+      context
+    })
+  }
+
+  async getUserDataFromWebsite() {
+    this.log('info', '🤖 getUserDataFromWebsite')
+    return {
+      sourceAccountIdentifier: 'defaultTemplateSourceAccountIdentifier'
     }
-    return body
-  } catch (err) {
-    if (
-      err.statusCode === 400 &&
-      err.error?.error === 'invalid_password_or_email'
-    ) {
-      throw new Error(errors.LOGIN_FAILED)
-    } else {
-      throw err
-    }
+  }
+
+  async parseBills() {
+    const articles = document.querySelectorAll('article')
+    return Array.from(articles).map(article => ({
+      amount: normalizePrice(article.querySelector('.price_color')?.innerHTML),
+      filename: article.querySelector('h3 a')?.getAttribute('title'),
+      fileurl:
+        'https://books.toscrape.com/' +
+        article.querySelector('img')?.getAttribute('src')
+    }))
   }
 }
 
-async function fetchProfileInfo() {
-  return request.post('https://api.payfit.com/hr/user/info')
+// Convert a price string to a float
+function normalizePrice(price) {
+  return parseFloat(price.replace('£', '').trim())
 }
 
-async function fetchPayrolls({ employeeId, companyId }) {
-  log('info', 'Fetching payrolls...')
-
-  const { id } = await request.get(
-    'https://api.payfit.com/files/category?name=payslip&country=FR'
-  )
-
-  return request.post('https://api.payfit.com/files/files', {
-    body: {
-      employeeIds: [employeeId],
-      categoryIds: [id],
-      companyIds: [companyId]
-    }
-  })
-}
-
-function convertPayrollsToCozy(payrolls, companyName) {
-  log('info', 'Converting payrolls to cozy...')
-  return payrolls.map(({ id, absoluteMonth, createdAt }) => {
-    const date = getDateFromAbsoluteMonth(absoluteMonth)
-    const filename = `${companyName}_${format(date, 'yyyy_MM')}_${id.slice(
-      -5
-    )}.pdf`
-    return {
-      date: moment(date).format('YYYY-MM-DD'),
-      fileurl: `https://api.payfit.com/files/file/${id}?attachment=1`,
-      filename,
-      // We keep both vendorID & vendorRef for historical purposes
-      vendorId: id,
-      vendorRef: id,
-      recurrence: 'monthly',
-      fileAttributes: {
-        // Here the website doesn't provide the awaited datas anymore, but they can be found in the dowloaded pdf during saveBills().
-        metadata: {
-          contentAuthor: 'payfit.com',
-          // It seems like some infos appears and disapears through time. Until now we were using the "today" date because the creation date was missing (see comment above).
-          // But now it's given for each documents in the received data, so we can use it.
-          issueDate: new Date(createdAt),
-          carbonCopy: true,
-          qualification: Qualification.getByLabel('pay_sheet')
-        }
-      }
-    }
-  })
-}
-
-// extracted from Payfit front code
-function getDateFromAbsoluteMonth(absoluteMonth) {
-  return new Date(2015, absoluteMonth - 1)
-}
+const connector = new TemplateContentScript()
+connector.init({ additionalExposedMethodsNames: ['parseBills'] }).catch(err => {
+  log.warn(err)
+})

@@ -1,13 +1,13 @@
 language: node_js
 node_js:
-- '16.18.1'
+- '16.20.0'
 env:
   global:
   - MATTERMOST_CHANNEL=publication
-  # REGISTRY_TOKEN(editor=cozy, app=payfit)
-  - secure: cHaVViHbKx9Wk7I/D0AH/vmc0hPyB/Ysnya3gekZHPuA9wKV+yXIKB9fqZxUOT6NZfPNBLBJqpPGHtFMlea+6fNKTOuB7k4+XwBMTPCaEJUazi/yAvg81GCljUV2PC+ZLwoLl898q8OG7UNL2tFmBBv6BWpQi0vy/oHA2/N3g71Y2ukvxUkWfTbNbzUmqYzky0Nap+YSYIrkwM/I58e/DPz1uYAkuGm1vzpEfu565xSCCpnMk2fbKuUe8AbUqU5vTYv1HQdatl7DmaFFkmPnxUUKSnz7MnEI+6VAJZtgT1K+5abDJW8KqzjwBvqJcIOX6CrPiBZEh+cn+SnZh78WxqG3W5Za7/c4tXHaK2E2BSaxJdYOD/zqOhknIGbRUi83hmNwx6t1aP5bPXtd7EsGFGVSuC1qcIXdsLXMOpgq3Bp1WGLmVuPFtSFuWanJuOhymPl62oPm4v2CVyIuy1Fhg8NHOIeABbkjCisBQpbpdnC/DiV4CQfbG4D6pXPrJQFLdXU9Dk8l4Xx+/KSNXihPY2MTIMkvgJdgw9DN3jlRahQtJig4K4c+HHA59F8W3x3zkCS9tRJUEu7dm9SHUVR+5+UkU8sjFjnuu4HaKsgli2OY9BwWisvVkTACuONZVgwDLD3TWhhhQbwsWW28G2/2TR9ADChevQbnQLQYHtExagc=
   # MATTERMOST_HOOK_URL
-  - secure: eBWMTELeU53WZ/9WjqxvfQVaOtJ9dgAuM28mfe6RJq5Rhy2dymg810CGOL5VncaaoY1H65jSSsvSkCedD55GGTqiVJKubn8qdm50DSTwl3rwlZE/X8IcdRBwTm0ez5ZikCGSA324dYzP+fXsEng0I1zRC1S84Xq8+lQdp2aBDXvdTWSPUyGg0tMEu5j79gMY7B+qFKcZgC8AdQdXI1wYgoVXCmNZD8qzAOXH1Zpmg5WYqSlNiOnC8gDUJQYqGTfU37upNjY0vMM7Y6BcZ7w5CnRi5e6FtF92lSoj7DClEunokTVvEP63dPWan8WtG18EDSKOIajxJRujvBnSY3PiDXTHlE1Khd4Y0T+/v/RryG/Aq96lGBTnOSZ6uM3NrY4GD9iH5Q3lnQf9kzTQOmWRxGqVP+Ktl5oVRd6F57k+K6vpg45H6StfabGm5FORQ0GtVxIn+tWGXAN+/Ty3mdUzK5IQd0zTWpX/gbp3qj2JOBPotJzT4brmy++ExmgUA+SX+PFbRbnFbFQ6D7zSOw4GjqMTKQlOV4GIuYwaD1EVNHQHEF0CD7ikisLgLMuYsRieC2Wb3oHtXTFEy8fmirYu8zWDsYS/w7MGv96ChRXn8jTrBiERgd2ZIUvf1Z+tSYyhxFq4mAIsnjgCrUgZw8LHWxjYObfUXy/5cUM8UzoEYs0=
+  - secure: jDXp4hj7CLPe0svqDPJxX/ETG7GGbdaEdwL3XbkSvd/aUhpOQLY6YwD6bpzdG83lvgHNJWU544SLECXDLdgm4XxDmF8/vXXcMMC64jreqevnriSikR/Pro5F7NAr0ORu67VUyuHgbDNC/g6TYXkZlT/Nc3nXwY4uTU/v1pLfJjlEFFUkN+NFnsuXHYWyfJ/+t5nCcCesTcwR6JxuaK16KEzGX8NH2o2Di9AWjRPirURxO11ntZ1RNmoB/HXR7BlWpOTW096EnA/6oo1juU30QvzWtqeFZLcaQ4WUPVJV3aFBAKJJyfY1ICMBP6BPXw7zg01wf4NlNFRDDNRDq8mfOQAK1sGiqb3lUvX2c6QecmEEQg51r3/0YuT+g8N3Gm/m2TbH+LhI952Yl7xjuHWnFMykEVzchSNpXwd//rEztijgAkGwGeLHNeyvE6uq1T5T+7Q+xdE/pEdUHPOmp9cOuvgDb0Yyt/5JvCJvN2duSTXLgTTtlWcpMiHdBahI7oAVdauUVikl/iem6IwtDaUKSW26xRP63QelUZaMmcAlKJjMg1sRzZeDpBQ6aqkot8Zc4f1AJMF+yEv/moeer7QbLZ7XPtwrPB6KhduIMpCqFydwiLWJLZoGFpBUp8IALkhjXkCFn+Cfa8Fa3l9XavwnORu/a8BQRbSESiXhWjBZqkk=
+  # REGISTRY_TOKEN slug=template editor=cozy space=cozy_ccc
+  - secure: K2hhx+uGkcMkY+TxjvNgJeRh2exggYJfbJdMINCxSvaIvJ3qrOL8x1DWYyYJvN3CuxIb+UuQ88kcMV7t3Vl8E3LydSwVwGkksAswgp2Btp5cos9fwcOPlDZrsbeLyq2g9mg2iRjRgl1ewUYYKKsKZLoz/0JSaMrDZ5YQVUETzGiWIO6/+7kQPMI8bKZuEttbNlN6NmNmQX5cfaSJNl6nv5S8Sc9c5eyYkSX9c+rqPuOGKm/pUe9F9W+2LjfgfjQ6YWH57Fjajhr1kueweQf9qUsPBvvT5hOHE48Xaac642ZCvaNfVXNAs7JDpBxQkGaoilSHpYHz2r18oBgUSYSQ+Dv3vTMkvQPTzySIulfbPmfOj4nhaC04NkbANwiqXVF3EJ1HGBS9MAneFV+sFgCOhi/QS/ZLW4Bsy2s387gGVhrowHePYk5L04n4N/WxsbyqRmRSK/64HK3ur+fyBGhhTqx8UBJyejZ3J67sHpJ/I88PtI5P3W6ZoS25B8uYFUu1Sliyi/zIdlL4+7qVbgZhphU1mEtXLI1iUfqEWtEMjA9biqsX2BDRUEzpZJzlEBWYai5gFeVorJ98w+26gxQ1rW7NUOY4svL8is3ceeaOviU0mNt2wJJVgZPk++UTGzuT96DTMj1BiO5q65I0Gnk5xsG+jToE7P4Q6FHvFP0ipGk=
 cache:
   yarn: true
   directories:
@@ -22,20 +22,22 @@ script:
 deploy:
 - provider: script
   skip-cleanup: true
-  script: DEPLOY_BRANCH=build yarn deploy && yarn cozyPublish
+  script: DEPLOY_BRANCH=build yarn deploy && yarn cozyPublish --space cozy_ccc
   on:
-    branch: master
+    branch:
+    - master
+    - main
 - provider: script
   skip-cleanup: true
-  script: DEPLOY_BRANCH=build yarn deploy && yarn cozyPublish --postpublish mattermost
+  script: DEPLOY_BRANCH=build yarn deploy && yarn cozyPublish --postpublish mattermost --space cozy_ccc
   on:
     tags: true
 before_install:
 - openssl aes-256-cbc -K $encrypted_8ebb1ef83f64_key -iv $encrypted_8ebb1ef83f64_iv
   -in github_deploy_key.enc -out /tmp/github_deploy_key -d
 - eval "$(ssh-agent -s)"
-- chmod 600 /tmp/github_deploy_key
-- ssh-add /tmp/github_deploy_key
+- if [[ -f /tmp/github_deploy_key ]]; then chmod 600 /tmp/github_deploy_key; fi
+- if [[ -f /tmp/github_deploy_key ]]; then ssh-add /tmp/github_deploy_key; fi
 after_deploy:
-- rm /tmp/github_deploy_key
+- rm -f /tmp/github_deploy_key
 - ssh-add -D
