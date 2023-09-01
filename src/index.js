@@ -51,36 +51,41 @@ window.fetch = async (...args) => {
 }
 
 class PayfitContentScript extends ContentScript {
+  addSubmitButtonListener() {
+    this.log('info', '🤖 addSubmitButtonListener')
+    const passwordButton = document.querySelector('._button-login-password')
+    if (passwordButton) {
+      passwordButton.addEventListener('click', () => {
+        const email = document.querySelector(
+          '.ulp-authenticator-selector-text'
+        )?.textContent
+        const password = document.querySelector('#password')?.value
+        this.bridge.emit('workerEvent', {
+          event: 'loginSubmit',
+          payload: { email, password }
+        })
+      })
+    }
+    const error = document.querySelector('.error')
+    if (error) {
+      this.bridge.emit('workerEvent', {
+        event: 'loginError',
+        payload: { msg: error.innerHTML }
+      })
+    }
+  }
+
   onWorkerReady() {
     this.log('info', '🤖 onWorkerReady')
-    window.addEventListener('DOMContentLoaded', () => {
-      this.log('info', 'DOMLoaded')
-      const passwordButton = document.querySelector('._button-login-password')
-      this.log('info', `passwordButton : ${Boolean(passwordButton)}`)
-      if (passwordButton) {
-        passwordButton.addEventListener('click', () => {
-          const email = document.querySelector(
-            '.ulp-authenticator-selector-text'
-          )?.textContent
-          const password = document.querySelector('#password')?.value
-          this.log(
-            'info',
-            `interceptedCreds : ${JSON.stringify({ email, password })}`
-          )
-          this.bridge.emit('workerEvent', {
-            event: 'loginSubmit',
-            payload: { email, password }
-          })
-        })
-      }
-      const error = document.querySelector('.error')
-      if (error) {
-        this.bridge.emit('workerEvent', {
-          event: 'loginError',
-          payload: { msg: error.innerHTML }
-        })
-      }
-    })
+    this.log('info', `docState : ${document.readyState}`)
+    if (document.readyState !== 'loading') {
+      this.addSubmitButtonListener.bind(this)()
+    } else {
+      window.addEventListener('DOMContentLoaded', () => {
+        this.log('info', 'DOMLoaded')
+        this.addSubmitButtonListener.bind(this)()
+      })
+    }
   }
 
   onWorkerEvent({ event, payload }) {
@@ -107,7 +112,6 @@ class PayfitContentScript extends ContentScript {
     await this.goto(baseUrl)
     await Promise.race([
       this.waitForElementInWorker('#username'),
-      this.waitForElementInWorker('#password'),
       this.waitForElementInWorker('div[data-testid="userInfoSection"]')
     ])
   }
@@ -220,6 +224,7 @@ class PayfitContentScript extends ContentScript {
   async fetch(context) {
     this.log('info', '🤖 fetch')
     if (this.store && this.store.userCredentials) {
+      this.log('info', 'Saving credentials ...')
       await this.saveCredentials(this.store.userCredentials)
     }
     if (this.store.userIdentity) {
