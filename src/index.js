@@ -5,17 +5,52 @@ const log = Minilog('ContentScript')
 Minilog.enable('payfitCCC')
 
 const baseUrl = 'https://app.payfit.com/'
-class TemplateContentScript extends ContentScript {
-  async navigateToLoginForm() {
-    this.log('info', '🤖 navigateToLoginForm')
-    await this.goto(baseUrl)
-    await Promise.race([
-      this.waitForElementInWorker('#username'),
-      this.waitForElementInWorker('#password'),
-      this.waitForElementInWorker('div[data-testid="userInfoSection"]')
-    ])
-  }
+const personalInfosUrl = `${baseUrl}settings/profile`
 
+let personalInfos = []
+let userSettings = []
+
+const fetchOriginal = window.fetch
+window.fetch = async (...args) => {
+  const response = await fetchOriginal(...args)
+  if (
+    typeof args[0] === 'string' &&
+    args[0] === 'https://api.payfit.com/hr/user-settings/personal-information'
+  ) {
+    await response
+      .clone()
+      .json()
+      .then(body => {
+        personalInfos.push(body)
+        return response
+      })
+      .catch(err => {
+        // eslint-disable-next-line no-console
+        console.log(err)
+        return response
+      })
+  }
+  if (
+    typeof args[0] === 'string' &&
+    args[0] === 'https://api.payfit.com/hr/user-settings'
+  ) {
+    await response
+      .clone()
+      .json()
+      .then(body => {
+        userSettings.push(body)
+        return response
+      })
+      .catch(err => {
+        // eslint-disable-next-line no-console
+        console.log(err)
+        return response
+      })
+  }
+  return response
+}
+
+class PayfitContentScript extends ContentScript {
   onWorkerReady() {
     this.log('info', '🤖 onWorkerReady')
     window.addEventListener('DOMContentLoaded', () => {
@@ -67,6 +102,16 @@ class TemplateContentScript extends ContentScript {
     }
   }
 
+  async navigateToLoginForm() {
+    this.log('info', '🤖 navigateToLoginForm')
+    await this.goto(baseUrl)
+    await Promise.race([
+      this.waitForElementInWorker('#username'),
+      this.waitForElementInWorker('#password'),
+      this.waitForElementInWorker('div[data-testid="userInfoSection"]')
+    ])
+  }
+
   async ensureAuthenticated({ account }) {
     await this.bridge.call(
       'setUserAgent',
@@ -74,9 +119,9 @@ class TemplateContentScript extends ContentScript {
     )
     this.bridge.addEventListener('workerEvent', this.onWorkerEvent.bind(this))
     this.log('info', '🤖 ensureAuthenticated')
-    if (!account) {
-      await this.ensureNotAuthenticated()
-    }
+    // if (!account) {
+    //   await this.ensureNotAuthenticated()
+    // }
     await this.navigateToLoginForm()
     const authenticated = await this.runInWorker('checkAuthenticated')
     if (!authenticated) {
@@ -154,8 +199,21 @@ class TemplateContentScript extends ContentScript {
         'div[data-testid="userInfoSection"]'
       )
     }
-    return {
-      sourceAccountIdentifier: 'defaultTemplateSourceAccountIdentifier'
+    await this.goto(personalInfosUrl)
+    await this.waitForElementInWorker(
+      'button[data-testid="changePersonalInformationButton"]'
+    )
+    await this.runInWorkerUntilTrue({
+      method: 'checkInterception',
+      args: ['identity']
+    })
+    await this.runInWorker('getIdentity')
+    if (this.store.userIdentity.email[0]?.address) {
+      return {
+        sourceAccountIdentifier: this.store.userIdentity.email[0].address
+      }
+    } else {
+      throw new Error('No email found for identity')
     }
   }
 
@@ -164,6 +222,11 @@ class TemplateContentScript extends ContentScript {
     if (this.store && this.store.userCredentials) {
       await this.saveCredentials(this.store.userCredentials)
     }
+    if (this.store.userIdentity) {
+      this.log('info', 'Saving identity ...')
+      await this.saveIdentity({ contact: this.store.userIdentity })
+    }
+    await this.waitForElementInWorker('[pause]')
   }
 
   async waitFor2FA() {
@@ -194,12 +257,111 @@ class TemplateContentScript extends ContentScript {
     ).length
     await this.sendToPilot({ numberOfContracts })
   }
+
+  async checkInterception(type) {
+    this.log('info', `📍️ checkInterception for ${type} starts`)
+    await waitFor(
+      () => {
+        if (type === 'identity') {
+          if (personalInfos.length > 0 && userSettings.length > 0) {
+            this.log('info', 'personalInfos interception OK')
+            return true
+          }
+          return false
+        }
+      },
+      {
+        interval: 1000,
+        timeout: 30 * 1000
+      }
+    )
+    return true
+  }
+
+  async getIdentity() {
+    this.log('info', '📍️ getIdentity starts')
+    const infos = personalInfos[0].variables
+    const emails = userSettings[0].userEmails
+    const userIdentity = {
+      name: {
+        givenName: infos.firstName,
+        familyName: infos.birthName
+      },
+      address: [],
+      email: [],
+      phone: [
+        {
+          number: infos.phoneNumber,
+          type: this.determinePhoneType(infos.phoneNumber)
+        }
+      ]
+    }
+    const foundAddress = this.getAddress(infos)
+    for (const email of emails) {
+      if (email.primary) {
+        userIdentity.email.push({ address: email.address })
+      }
+    }
+    userIdentity.address.push(foundAddress)
+    await this.sendToPilot({ userIdentity })
+  }
+
+  determinePhoneType(phoneNumber) {
+    this.log('info', '📍️ determinePhoneType starts')
+    if (phoneNumber.startsWith('06') || phoneNumber.startsWith('07')) {
+      return 'mobile'
+    } else {
+      return 'home'
+    }
+  }
+
+  getAddress(infos) {
+    this.log('info', '📍️ getAddress starts')
+    let constructedAddress = ''
+    const address = {}
+    if (
+      infos.addressNumber !== null &&
+      !infos.address.includes(infos.addressNumber)
+    ) {
+      constructedAddress += infos.addressNumber
+      address.streetNumer = infos.addressNumber
+    } else {
+      constructedAddress += infos.address
+      address.street = infos.address
+    }
+
+    if (
+      infos.addressStreetType !== null &&
+      !infos.address.includes(infos.addressStreetType)
+    ) {
+      constructedAddress += ` ${infos.addressStreetType}`
+      address.streetType = infos.addressStreetType
+    }
+
+    if (infos.additionalAddress !== null) {
+      constructedAddress += ` ${infos.additionalAddress}`
+      address.complement = infos.additionalAddress
+    }
+
+    constructedAddress += ` ${infos.postcode} ${infos.city} ${infos.country}`
+    address.city = infos.city
+    address.postCode = infos.postcode
+    address.country = infos.country
+    address.formattedAddress = constructedAddress
+
+    return address
+  }
 }
 
-const connector = new TemplateContentScript()
+const connector = new PayfitContentScript()
 connector
   .init({
-    additionalExposedMethodsNames: ['waitFor2FA', 'getNumberOfContracts']
+    additionalExposedMethodsNames: [
+      'waitFor2FA',
+      'getNumberOfContracts',
+      'getIdentity',
+      'checkInterception'
+    ]
   })
   .catch(err => {
     log.warn(err)
