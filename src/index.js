@@ -87,9 +87,10 @@ window.XMLHttpRequest.prototype.open = function () {
 class PayfitContentScript extends ContentScript {
   addSubmitButtonListener() {
     // this.log('info', '🤖 addSubmitButtonListener')
+    const formElement = document.querySelector('form')
     const passwordButton = document.querySelector('._button-login-password')
     if (passwordButton) {
-      passwordButton.addEventListener('click', () => {
+      formElement.addEventListener('submit', () => {
         const email = document.querySelector(
           '.ulp-authenticator-selector-text'
         )?.textContent
@@ -128,7 +129,7 @@ class PayfitContentScript extends ContentScript {
       this.blockWorkerInteractions()
       const { email, password } = payload || {}
       if (email && password) {
-        this.log('info', 'EMAIL AND PASSWORD FOUND')
+        this.log('info', 'Couple email/password found')
         this.store.userCredentials = { email, password }
       }
     } else if (event === 'loginError') {
@@ -168,6 +169,7 @@ class PayfitContentScript extends ContentScript {
     }
     if (await this.isElementInWorker('#code')) {
       this.log('info', 'Waiting for 2FA ...')
+      this.unblockWorkerInteractions()
       await this.show2FAFormAndWaitForInput()
     }
     this.unblockWorkerInteractions()
