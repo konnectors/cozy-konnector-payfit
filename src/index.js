@@ -525,11 +525,14 @@ class PayfitContentScript extends ContentScript {
     )
     const datesArray = this.store.fetchedDates
     const numberOfContracts = this.store.numberOfContracts
-    await this.runInWorker(
+    const lastContract = await this.runInWorker(
       'determineContractToSelect',
       datesArray,
       numberOfContracts
     )
+    if (lastContract) {
+      return true
+    }
     await this.waitForElementInWorker('div[data-testid="userInfoSection"]')
     const contractInfos = this.store.contractsInfos
     await this.runInWorker('getContractInfos', contractInfos)
@@ -807,6 +810,7 @@ class PayfitContentScript extends ContentScript {
       'button[data-testid="accountButton"]'
     )
     const datesArray = [...fetchedDatesArray]
+    let numberOfFetchedContracts = 0
     for (let i = 0; i < contractButtons.length; i++) {
       const contractDate = contractButtons[i]
         .querySelector('span')
@@ -823,12 +827,14 @@ class PayfitContentScript extends ContentScript {
         break
       } else {
         this.log('info', 'This contract has already been fetched, continue')
+        numberOfFetchedContracts++
       }
     }
-    if (datesArray.length === numberOfContracts) {
+    if (numberOfFetchedContracts === numberOfContracts) {
       this.log('info', 'Last contract fetched, finishing ...')
-      contractButtons[0].click()
+      return true
     }
+    return false
   }
 }
 
