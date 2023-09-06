@@ -161,7 +161,9 @@ class PayfitContentScript extends ContentScript {
     if (!account) {
       await this.ensureNotAuthenticated()
     }
-    await this.navigateToLoginForm()
+    if (!(await this.isElementInWorker('#username'))) {
+      await this.navigateToLoginForm()
+    }
     const authenticated = await this.runInWorker('checkAuthenticated')
     if (!authenticated) {
       this.log('info', 'Not authenticated')
