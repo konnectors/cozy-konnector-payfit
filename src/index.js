@@ -165,7 +165,21 @@ class PayfitContentScript extends ContentScript {
     const authenticated = await this.runInWorker('checkAuthenticated')
     if (!authenticated) {
       this.log('info', 'Not authenticated')
-      await this.showLoginFormAndWaitForAuthentication()
+      const credentials = await this.getCredentials()
+      if (credentials) {
+        try {
+          await this.autoLogin(credentials)
+          this.log('info', 'autoLogin succesful')
+        } catch {
+          this.log(
+            'info',
+            'Something went wrong with autoLogin, letting user log in'
+          )
+          await this.showLoginFormAndWaitForAuthentication()
+        }
+      } else {
+        await this.showLoginFormAndWaitForAuthentication()
+      }
     }
     if (await this.isElementInWorker('#code')) {
       this.log('info', 'Waiting for 2FA ...')
@@ -247,6 +261,34 @@ class PayfitContentScript extends ContentScript {
     await this.setWorkerState({ visible: true })
     await this.runInWorkerUntilTrue({ method: 'waitFor2FA' })
     await this.setWorkerState({ visible: false })
+  }
+
+  async autoLogin(credentials) {
+    this.log('info', '📍️ autoLogin starts')
+    const emailInputSelector = '#username'
+    const passwordInputSelector = '#password'
+    const emailNextButtonSelector = '._button-login-id'
+    const passwordSubmitButtonSelector = '._button-login-password'
+    await this.waitForElementInWorker(emailInputSelector)
+    this.log('debug', 'Fill email field')
+    await this.runInWorker('fillText', emailInputSelector, credentials.email)
+    await this.runInWorker('click', emailNextButtonSelector)
+
+    this.log('debug', 'Wait for password field')
+    await this.waitForElementInWorker(passwordInputSelector)
+
+    this.log('debug', 'Fill password field')
+    await this.runInWorker(
+      'fillText',
+      passwordInputSelector,
+      credentials.password
+    )
+    await this.runInWorker('click', passwordSubmitButtonSelector)
+    await this.Promise.race([
+      this.waitForElementInWorker('div[data-testid="userInfoSection"]'),
+      this.waitForElementInWorker('#code'),
+      this.waitForElementInWorker('button[data-testid="accountButton"]')
+    ])
   }
 
   async getUserDataFromWebsite() {
