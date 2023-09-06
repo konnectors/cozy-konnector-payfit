@@ -1,7 +1,7 @@
 import { ContentScript } from 'cozy-clisk/dist/contentscript'
 import Minilog from '@cozy/minilog'
 import waitFor from 'p-wait-for'
-import { format, parse, startOfMonth, endOfMonth } from 'date-fns'
+import { format } from 'date-fns'
 const log = Minilog('ContentScript')
 Minilog.enable('payfitCCC')
 
@@ -150,15 +150,16 @@ class PayfitContentScript extends ContentScript {
   }
 
   async ensureAuthenticated({ account }) {
+    // Using a desktop userAgent is mandatory to have access to the user's personnal data
     await this.bridge.call(
       'setUserAgent',
       'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:94.0) Gecko/20100101 Firefox/94.0'
     )
     this.bridge.addEventListener('workerEvent', this.onWorkerEvent.bind(this))
     this.log('info', '🤖 ensureAuthenticated')
-    // if (!account) {
-    //   await this.ensureNotAuthenticated()
-    // }
+    if (!account) {
+      await this.ensureNotAuthenticated()
+    }
     await this.navigateToLoginForm()
     const authenticated = await this.runInWorker('checkAuthenticated')
     if (!authenticated) {
@@ -185,11 +186,30 @@ class PayfitContentScript extends ContentScript {
         'div[data-testid="mobile-menu-toggle"]',
         'div[data-testid="accountDropdown"] > button'
       )
-      await this.clickAndWait(
-        'div[data-testid="accountDropdown"] > button',
-        '#MIDNIGHT_1_1'
+      await this.runInWorker(
+        'click',
+        'div[data-testid="accountDropdown"] > button'
       )
-      await this.clickAndWait('#MIDNIGHT_1_1', '#username')
+      await this.waitForElementInWorker('div[role="menu"]')
+      const optionId = await this.evaluateInWorker(function getMenuId() {
+        const menuElement = document.querySelector('div[role="menu"]')
+        const menuId = menuElement.getAttribute('id')
+        const menuOptionsElements = menuElement.querySelectorAll(
+          `div[id*="${menuId}"]`
+        )
+        for (let i = 0; i < menuOptionsElements.length; i++) {
+          const optionElement = menuOptionsElements[i].querySelector('span')
+          const option = optionElement.textContent
+          const optionElementId = menuOptionsElements[i].getAttribute('id')
+          if (option === 'Me déconnecter') {
+            return optionElementId
+          }
+        }
+        throw new Error(
+          'No options matched "Me déconnecter" expectations, check the code'
+        )
+      })
+      await this.clickAndWait(`#${optionId}`, '#username')
       this.log('info', 'Logout OK')
     }
   }
@@ -200,7 +220,7 @@ class PayfitContentScript extends ContentScript {
       this.log('info', 'Login OK - 2FA needed, wait for user action')
       return true
     }
-    if (document.querySelector('div[data-testid="accountArrow"]')) {
+    if (document.querySelector('button[data-testid="accountButton"]')) {
       this.log('info', 'Login OK - Account selection needed')
       return true
     }
@@ -229,13 +249,16 @@ class PayfitContentScript extends ContentScript {
 
   async getUserDataFromWebsite() {
     this.log('info', '🤖 getUserDataFromWebsite')
-    if (await this.isElementInWorker('div[data-testid="accountArrow"]')) {
-      await this.runInWorker('getNumberOfContracts')
-      await this.clickAndWait(
-        'div[data-testid="accountArrow"]',
-        'div[data-testid="userInfoSection"]'
-      )
+    if (await this.isElementInWorker('button[data-testid="accountButton"]')) {
+      await this.runInWorker('selectClosestToDateContract')
+      this.log('info', `Found ${this.store.numberOfContracts} contracts`)
+      await this.waitForElementInWorker('div[data-testid="userInfoSection"]')
+      await this.runInWorker('getContractInfos')
     }
+    await this.runInWorker('getContractInfos')
+    this.log('info', '🦜️sleep for 5 sec')
+    await sleep(5000)
+    this.log('info', '🦜️wake up')
     await this.goto(personalInfosUrl)
     await this.waitForElementInWorker(
       'button[data-testid="changePersonalInformationButton"]'
@@ -264,6 +287,27 @@ class PayfitContentScript extends ContentScript {
       this.log('info', 'Saving identity ...')
       await this.saveIdentity({ contact: this.store.userIdentity })
     }
+    const foundNumberOfContracts = this.store.numberOfContracts
+      ? this.store.numberOfContracts
+      : 1
+    for (let i = 0; i < foundNumberOfContracts; i++) {
+      this.log(
+        'info',
+        `Fetching ${i + 1}/${foundNumberOfContracts} contract ...`
+      )
+      await this.fetchPayslips({
+        context,
+        fetchedDates: this.store.fetchedDates,
+        i
+      })
+      if (foundNumberOfContracts > 1) {
+        await this.navigateToNextContract()
+      }
+    }
+  }
+
+  async fetchPayslips({ context, fetchedDatesArray, i }) {
+    this.log('info', '📍️ fetchPayslips starts')
     await this.navigateToPayrollsPage()
     const numberOfBills = await this.evaluateInWorker(
       function getNumberOfBills() {
@@ -281,89 +325,112 @@ class PayfitContentScript extends ContentScript {
       args: [{ type: 'bills', number: numberOfBills }]
     })
     const allBills = await this.runInWorker('getBills')
-    // await this.waitForElementInWorker('[pause]')
-    await this.saveBills(allBills, {
-      linkBankOperations: false,
+    let subPath = await this.determineSubPath(fetchedDatesArray, i)
+    // We cannot use saveBills yet as we need an amount that used to be scraped in the downloaded pdf and added afterward
+    // And this feature is not implemented in cozy-clisk yet
+    // await this.saveBills(allBills, {
+    //   context,
+    //   fileIdAttributes: ['vendorId'],
+    //   processPdf: (entry, text) => {
+    //     const formatedText = text.split('\n').join(' ').replace(/ /g, '')
+
+    //     // Extract PDF data before 06-2022
+    //     if (
+    //       formatedText.match(
+    //         /VIREMENT([0-9,]*)DATEDEPAIEMENT([0-9]{2})(JANVIER|FÉVRIER|MARS|AVRIL|MAI|JUIN|JUILLET|AOÛT|SEPTEMBRE|OCTOBRE|NOVEMBRE|DÉCEMBRE)([0-9]{4})/
+    //       )
+    //     ) {
+    //       const matchedStrings = text
+    //         .split('\n')
+    //         .join(' ')
+    //         .replace(/ /g, '')
+    //         .match(
+    //           /VIREMENT([0-9,]*)DATEDEPAIEMENT([0-9]{2})(JANVIER|FÉVRIER|MARS|AVRIL|MAI|JUIN|JUILLET|AOÛT|SEPTEMBRE|OCTOBRE|NOVEMBRE|DÉCEMBRE)([0-9]{4})/
+    //         )
+    //       const values = matchedStrings
+    //         .slice(1)
+    //         .map(data => data.trim().replace(/\s\s+/g, ' '))
+    //       const amount = parseFloat(
+    //         values.shift().replace(/\s/g, '').replace(',', '.')
+    //       )
+    //       const date = parse(values.join(' '), 'dd MMMM yyyy', new Date())
+    //       const companyName = entry.companyName
+
+    //       Object.assign(entry, {
+    //         periodStart: format(startOfMonth(entry.date), 'yyyy-MM-dd'),
+    //         periodEnd: format(endOfMonth(entry.date), 'yyyy-MM-dd'),
+    //         date,
+    //         amount,
+    //         vendor: 'Payfit',
+    //         type: 'pay',
+    //         employer: companyName,
+    //         matchingCriterias: {
+    //           labelRegex: `\\b${companyName}\\b`
+    //         },
+    //         isRefund: true
+    //       })
+    //       // Extract PDF data after 06-2022
+    //     } else if (
+    //       formatedText.match(/\(Virement\)[\s,0-9,+,-]+=\s+([0-9,]+)/) &&
+    //       formatedText.match(
+    //         /Datedepaiement\s*([0-9]{1,2}\/[0-9]{2}\/[0-9]{4})/
+    //       )
+    //     ) {
+    //       const amountStg = formatedText.match(
+    //         /\(Virement\)[\s,0-9,+,-]+=\s+([0-9,]+)/
+    //       )[1]
+    //       const amount = parseFloat(amountStg.replace(',', '.'))
+    //       const dateStg = formatedText.match(
+    //         /Datedepaiement\s*([0-9]{1,2}\/[0-9]{2}\/[0-9]{4})/
+    //       )[1]
+    //       const date = parse(dateStg, 'dd/MM/yyyy', new Date())
+    //       const companyName = entry.companyName
+
+    //       Object.assign(entry, {
+    //         periodStart: format(startOfMonth(entry.date), 'yyyy-MM-dd'),
+    //         periodEnd: format(endOfMonth(entry.date), 'yyyy-MM-dd'),
+    //         date,
+    //         amount,
+    //         vendor: 'Payfit',
+    //         type: 'pay',
+    //         employer: companyName,
+    //         matchingCriterias: {
+    //           labelRegex: `\\b${companyName}\\b`
+    //         },
+    //         isRefund: true
+    //       })
+    //     } else {
+    //       throw new Error('no matched string in pdf')
+    //     }
+    //   },
+    //   shouldReplaceFile: function (newBill, dbEntry) {
+    //     const result =
+    //       newBill.metadata.issueDate !==
+    //       dbEntry.fileAttributes.metadata.issueDate
+    //     return result
+    //   }
+    // })
+    await this.saveFiles(allBills, {
+      context,
       fileIdAttributes: ['vendorId'],
-      processPdf: (entry, text) => {
-        const formatedText = text.split('\n').join(' ').replace(/ /g, '')
-
-        // Extract PDF data before 06-2022
-        if (
-          formatedText.match(
-            /VIREMENT([0-9,]*)DATEDEPAIEMENT([0-9]{2})(JANVIER|FÉVRIER|MARS|AVRIL|MAI|JUIN|JUILLET|AOÛT|SEPTEMBRE|OCTOBRE|NOVEMBRE|DÉCEMBRE)([0-9]{4})/
-          )
-        ) {
-          const matchedStrings = text
-            .split('\n')
-            .join(' ')
-            .replace(/ /g, '')
-            .match(
-              /VIREMENT([0-9,]*)DATEDEPAIEMENT([0-9]{2})(JANVIER|FÉVRIER|MARS|AVRIL|MAI|JUIN|JUILLET|AOÛT|SEPTEMBRE|OCTOBRE|NOVEMBRE|DÉCEMBRE)([0-9]{4})/
-            )
-          const values = matchedStrings
-            .slice(1)
-            .map(data => data.trim().replace(/\s\s+/g, ' '))
-          const amount = parseFloat(
-            values.shift().replace(/\s/g, '').replace(',', '.')
-          )
-          const date = parse(values.join(' '), 'dd MMMM yyyy', new Date())
-          const companyName = entry.companyName
-
-          Object.assign(entry, {
-            periodStart: format(startOfMonth(entry.date), 'yyyy-MM-dd'),
-            periodEnd: format(endOfMonth(entry.date), 'yyyy-MM-dd'),
-            date,
-            amount,
-            vendor: 'Payfit',
-            type: 'pay',
-            employer: companyName,
-            matchingCriterias: {
-              labelRegex: `\\b${companyName}\\b`
-            },
-            isRefund: true
-          })
-          // Extract PDF data after 06-2022
-        } else if (
-          formatedText.match(/\(Virement\)[\s,0-9,+,-]+=\s+([0-9,]+)/) &&
-          formatedText.match(
-            /Datedepaiement\s*([0-9]{1,2}\/[0-9]{2}\/[0-9]{4})/
-          )
-        ) {
-          const amountStg = formatedText.match(
-            /\(Virement\)[\s,0-9,+,-]+=\s+([0-9,]+)/
-          )[1]
-          const amount = parseFloat(amountStg.replace(',', '.'))
-          const dateStg = formatedText.match(
-            /Datedepaiement\s*([0-9]{1,2}\/[0-9]{2}\/[0-9]{4})/
-          )[1]
-          const date = parse(dateStg, 'dd/MM/yyyy', new Date())
-          const companyName = entry.companyName
-
-          Object.assign(entry, {
-            periodStart: format(startOfMonth(entry.date), 'yyyy-MM-dd'),
-            periodEnd: format(endOfMonth(entry.date), 'yyyy-MM-dd'),
-            date,
-            amount,
-            vendor: 'Payfit',
-            type: 'pay',
-            employer: companyName,
-            matchingCriterias: {
-              labelRegex: `\\b${companyName}\\b`
-            },
-            isRefund: true
-          })
-        } else {
-          throw new Error('no matched string in pdf')
-        }
-      },
-      shouldReplaceFile: function (newBill, dbEntry) {
-        const result =
-          newBill.metadata.issueDate !==
-          dbEntry.fileAttributes.metadata.issueDate
-        return result
-      }
+      contentType: 'application/pdf',
+      qualificationLabel: 'pay_sheet',
+      subPath
     })
+  }
+
+  determineSubPath(fetchedDatesArray, i) {
+    this.log('info', '📍️ determineSubPath starts')
+    let subPath = `${this.store.companyName} - ${this.store.contractsInfos[i].type}`
+    if (!fetchedDatesArray) {
+      subPath = `${subPath} - ${this.store.contractsInfos[i].startDate}`
+    } else {
+      subPath = `${subPath} - ${fetchedDatesArray[i]}`
+    }
+    if (this.store.contractsInfos[i].endDate) {
+      subPath = `${subPath} → ${this.store.contractsInfos[i].endDate}`
+    }
+    return subPath
   }
 
   async navigateToPayrollsPage() {
@@ -378,6 +445,51 @@ class PayfitContentScript extends ContentScript {
     )
   }
 
+  async navigateToNextContract() {
+    this.log('info', '📍️ navigateToNextContract starts')
+    await this.clickAndWait(
+      'div[data-testid="mobile-menu-toggle"]',
+      'div[data-testid="accountDropdown"] > button'
+    )
+    await this.runInWorker(
+      'click',
+      'div[data-testid="accountDropdown"] > button'
+    )
+    await this.waitForElementInWorker('div[role="menu"]')
+    const optionId = await this.evaluateInWorker(function getMenuId() {
+      const menuElement = document.querySelector('div[role="menu"]')
+      const menuId = menuElement.getAttribute('id')
+      const menuOptionsElements = menuElement.querySelectorAll(
+        `div[id*="${menuId}"]`
+      )
+      for (let i = 0; i < menuOptionsElements.length; i++) {
+        const optionElement = menuOptionsElements[i].querySelector('span')
+        const option = optionElement.textContent
+        const optionElementId = menuOptionsElements[i].getAttribute('id')
+        if (option === 'Changer de compte') {
+          return optionElementId
+        }
+      }
+      throw new Error(
+        'No options matched "Changer de compte" expectations, check the code'
+      )
+    })
+    await this.clickAndWait(
+      `#${optionId}`,
+      'button[data-testid="accountButton"]'
+    )
+    const datesArray = this.store.fetchedDates
+    const numberOfContracts = this.store.numberOfContracts
+    await this.runInWorker(
+      'determineContractToSelect',
+      datesArray,
+      numberOfContracts
+    )
+    await this.waitForElementInWorker('div[data-testid="userInfoSection"]')
+    const contractInfos = this.store.contractsInfos
+    await this.runInWorker('getContractInfos', contractInfos)
+  }
+
   async waitFor2FA() {
     this.log('info', 'waitFor2FA starts')
     await waitFor(
@@ -385,7 +497,9 @@ class PayfitContentScript extends ContentScript {
         if (document.querySelector('div[data-testid="userInfoSection"]')) {
           this.log('info', '2FA OK - Land on home')
           return true
-        } else if (document.querySelector('div[data-testid="accountArrow"]')) {
+        } else if (
+          document.querySelector('button[data-testid="accountButton"]')
+        ) {
           this.log('info', '2FA OK - Land on accounts selection')
           return true
         }
@@ -399,12 +513,78 @@ class PayfitContentScript extends ContentScript {
     return true
   }
 
-  async getNumberOfContracts() {
+  async selectClosestToDateContract() {
+    this.log('info', 'selectClosestToDateContract starts')
+    const numberOfContracts = this.getNumberOfContracts()
+    this.log('info', 'Sending number of contracts to Pilot')
+    const contractElements = document.querySelectorAll(
+      'button[data-testid="accountButton"]'
+    )
+    const closestDate = await this.determineClosestToDate(contractElements)
+    await this.sendToPilot({
+      numberOfContracts,
+      fetchedDates: [closestDate.date]
+    })
+    contractElements[closestDate.index].click()
+  }
+
+  determineClosestToDate(elements) {
+    this.log('info', '📍️ determineClosestToDate starts')
+    const foundDates = []
+    for (let i = 0; i < elements.length; i++) {
+      const foundDate = elements[i]
+        .querySelector('span')
+        .textContent.split(':')[1]
+        .trim()
+      foundDates.push(foundDate)
+    }
+    const actualDate = new Date()
+    const diffMin = foundDates.reduce(
+      (min, date, index) => {
+        const dateCourante = new Date(date)
+        const diff = Math.abs(dateCourante - actualDate)
+        return diff < min.diff ? { diff, index, date } : min
+      },
+      { diff: Infinity, index: -1 }
+    )
+    return diffMin
+  }
+
+  getNumberOfContracts() {
     this.log('info', 'getNumberOfContracts starts')
     const numberOfContracts = document.querySelectorAll(
-      'div[data-testid="accountArrow"]'
+      'button[data-testid="accountButton"]'
     ).length
-    await this.sendToPilot({ numberOfContracts })
+    return numberOfContracts
+  }
+
+  async getContractInfos(contractsInfos) {
+    this.log('info', '📍️ getContractInfos starts')
+    const allContractsInfos = []
+    if (contractsInfos) {
+      for (const contractInfos of contractsInfos)
+        allContractsInfos.push(contractInfos)
+    }
+    const startDate = document
+      .querySelector('div[data-testid="dashboardBulletsContractStart"]')
+      .textContent.split('contrat')[1]
+      .replace(/\//g, '-')
+    const endDate = document
+      .querySelector('div[data-testid="dashboardBulletsContractEnd"]')
+      ?.textContent.split('contrat')[1]
+      .replace(/\//g, '-')
+    const type = document
+      .querySelector('div[data-testid="dashboardBulletsContractType"]')
+      .textContent.split('contrat')[1]
+    const contract = {
+      startDate,
+      type
+    }
+    if (endDate) {
+      contract.endDate = endDate
+    }
+    allContractsInfos.push(contract)
+    await this.sendToPilot({ contractsInfos: allContractsInfos })
   }
 
   async checkInterception(args) {
@@ -516,6 +696,7 @@ class PayfitContentScript extends ContentScript {
       window.localStorage.getItem('accountChoice')
     )
     const companyName = accountChoice.companyInfo.name
+    await this.sendToPilot({ companyName })
     for (const bill of billsInfos) {
       const billId = bill.id
       const issueDate = bill.createdAt
@@ -527,17 +708,19 @@ class PayfitContentScript extends ContentScript {
       const computedBill = {
         date: format(date, 'yyyy-MM-dd'),
         filename,
+        // This is supposed to be added to the data  by the "processPdf" function in saveBills opt.
+        // after scraping the associated PDF. But for now, this feature is not handled by cozy-clisk.
+        // For the saveBills to work properly we need to add an amount and a vendor to the bill at least
+        // amount: 2000,
+        // vendor: 'payfit.fr',
         companyName,
         // We keep both vendorID & vendorRef for historical purposes
         vendorId: billId,
         vendorRef: billId,
         recurrence: 'monthly',
         fileAttributes: {
-          // Here the website doesn't provide the awaited datas anymore, but they can be found in the dowloaded pdf during saveBills().
           metadata: {
             contentAuthor: 'payfit.com',
-            // It seems like some infos appears and disapears through time. Until now we were using the "today" date because the creation date was missing (see comment above).
-            // But now it's given for each documents in the received data, so we can use it.
             issueDate: new Date(issueDate),
             carbonCopy: true
           }
@@ -572,21 +755,55 @@ class PayfitContentScript extends ContentScript {
     //   })
     // return urlResp.url
   }
+
+  async determineContractToSelect(fetchedDatesArray, numberOfContracts) {
+    this.log('info', '📍️ determineContractToSelect starts')
+    const contractButtons = document.querySelectorAll(
+      'button[data-testid="accountButton"]'
+    )
+    const datesArray = [...fetchedDatesArray]
+    for (let i = 0; i < contractButtons.length; i++) {
+      const contractDate = contractButtons[i]
+        .querySelector('span')
+        .textContent.split(':')[1]
+        .trim()
+      const index = fetchedDatesArray.findIndex(
+        element => element === contractDate
+      )
+      if (index === -1) {
+        this.log('info', 'This contract could be fetch')
+        datesArray.push(contractDate)
+        contractButtons[i].click()
+        await this.sendToPilot({ fetchedDates: datesArray })
+        break
+      } else {
+        this.log('info', 'This contract has already been fetched, continue')
+      }
+    }
+    if (datesArray.length === numberOfContracts) {
+      this.log('info', 'Last contract fetched, finishing ...')
+      contractButtons[0].click()
+    }
+  }
 }
 
 function getDateFromAbsoluteMonth(absoluteMonth) {
   return new Date(2015, absoluteMonth - 1)
 }
 
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
+
 const connector = new PayfitContentScript()
 connector
   .init({
     additionalExposedMethodsNames: [
       'waitFor2FA',
-      'getNumberOfContracts',
+      'selectClosestToDateContract',
       'getIdentity',
       'checkInterception',
-      'getBills'
+      'getBills',
+      'determineContractToSelect',
+      'getContractInfos'
     ]
   })
   .catch(err => {
