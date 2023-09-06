@@ -252,13 +252,14 @@ class PayfitContentScript extends ContentScript {
     if (await this.isElementInWorker('button[data-testid="accountButton"]')) {
       await this.runInWorker('selectClosestToDateContract')
       this.log('info', `Found ${this.store.numberOfContracts} contracts`)
-      await this.waitForElementInWorker('div[data-testid="userInfoSection"]')
-      await this.runInWorker('getContractInfos')
     }
+    await Promise.all([
+      this.waitForElementInWorker('div[data-testid="userInfoSection"]'),
+      this.waitForElementInWorker(
+        'div[data-testid="dashboardBulletsContractStart"]'
+      )
+    ])
     await this.runInWorker('getContractInfos')
-    this.log('info', '🦜️sleep for 5 sec')
-    await sleep(5000)
-    this.log('info', '🦜️wake up')
     await this.goto(personalInfosUrl)
     await this.waitForElementInWorker(
       'button[data-testid="changePersonalInformationButton"]'
@@ -790,8 +791,6 @@ class PayfitContentScript extends ContentScript {
 function getDateFromAbsoluteMonth(absoluteMonth) {
   return new Date(2015, absoluteMonth - 1)
 }
-
-const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 
 const connector = new PayfitContentScript()
 connector
