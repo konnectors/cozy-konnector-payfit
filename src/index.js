@@ -13,7 +13,7 @@ let userSettings = []
 let bills = []
 let billsHrefs = []
 
-// We need to type of interceptions, the fetch and the Xhr as requests for personnal informations are done with fetch
+// We need two types of interceptions, the fetch and the Xhr as requests for personnal informations are done with fetch
 // but the payslips request is done with XMLHttpRequest
 
 const fetchOriginal = window.fetch
@@ -86,7 +86,6 @@ window.XMLHttpRequest.prototype.open = function () {
 
 class PayfitContentScript extends ContentScript {
   addSubmitButtonListener() {
-    // this.log('info', '🤖 addSubmitButtonListener')
     const formElement = document.querySelector('form')
     const passwordButton = document.querySelector('._button-login-password')
     if (passwordButton) {
@@ -101,7 +100,7 @@ class PayfitContentScript extends ContentScript {
         })
       })
     }
-    const error = document.querySelector('.error')
+    const error = document.querySelector('#error-element-password')
     if (error) {
       this.bridge.emit('workerEvent', {
         event: 'loginError',
@@ -111,7 +110,6 @@ class PayfitContentScript extends ContentScript {
   }
 
   onWorkerReady() {
-    this.log('info', '🤖 onWorkerReady')
     if (document.readyState !== 'loading') {
       this.addSubmitButtonListener.bind(this)()
     } else {
@@ -123,7 +121,6 @@ class PayfitContentScript extends ContentScript {
   }
 
   onWorkerEvent({ event, payload }) {
-    this.log('info', '🤖 onWorkerEvent')
     if (event === 'loginSubmit') {
       this.log('info', 'received loginSubmit, blocking user interactions')
       this.blockWorkerInteractions()
@@ -151,13 +148,13 @@ class PayfitContentScript extends ContentScript {
   }
 
   async ensureAuthenticated({ account }) {
+    this.log('info', '🤖 ensureAuthenticated')
     // Using a desktop userAgent is mandatory to have access to the user's personnal data
     await this.bridge.call(
       'setUserAgent',
-      'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:94.0) Gecko/20100101 Firefox/94.0'
+      'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/116.0'
     )
     this.bridge.addEventListener('workerEvent', this.onWorkerEvent.bind(this))
-    this.log('info', '🤖 ensureAuthenticated')
     if (!account) {
       await this.ensureNotAuthenticated()
     }
