@@ -533,6 +533,8 @@ class PayfitContentScript extends ContentScript {
       numberOfContracts
     )
     if (lastContract) {
+      await this.runInWorker('selectClosestToDateContract')
+      await this.waitForElementInWorker('div[data-testid="userInfoSection"]')
       return true
     }
     await this.waitForElementInWorker('div[data-testid="userInfoSection"]')
