@@ -143,7 +143,8 @@ class PayfitContentScript extends ContentScript {
     await this.goto(baseUrl)
     await Promise.race([
       this.waitForElementInWorker('#username'),
-      this.waitForElementInWorker('div[data-testid="userInfoSection"]')
+      this.waitForElementInWorker('div[data-testid="userInfoSection"]'),
+      this.waitForElementInWorker('button[data-testid="accountButton"]')
     ])
   }
 
@@ -197,6 +198,16 @@ class PayfitContentScript extends ContentScript {
       return true
     } else {
       this.log('info', 'Already logged in, logging out')
+      if (this.isElementInWorker('button[data-testid="accountButton"]')) {
+        this.log(
+          'info',
+          'ensureNotAuthenticated - Account selection page detected, navigating to any contract to access logout button'
+        )
+        await this.clickAndWait(
+          'button[data-testid="accountButton"]',
+          'div[data-testid="mobile-menu-toggle"]'
+        )
+      }
       await this.clickAndWait(
         'div[data-testid="mobile-menu-toggle"]',
         'div[data-testid="accountDropdown"] > button'
@@ -813,10 +824,7 @@ class PayfitContentScript extends ContentScript {
     const datesArray = [...fetchedDatesArray]
     let numberOfFetchedContracts = 0
     for (let i = 0; i < contractButtons.length; i++) {
-      const contractDate = contractButtons[i]
-        .querySelector('span')
-        .textContent.split(':')[1]
-        .trim()
+      const contractDate = this.getContractDate(contractButtons[i])
       const index = fetchedDatesArray.findIndex(
         element => element === contractDate
       )
@@ -836,6 +844,19 @@ class PayfitContentScript extends ContentScript {
       return true
     }
     return false
+  }
+
+  getContractDate(contractElement) {
+    this.log('info', '📍️ getContractDate starts')
+    const foundSpan = contractElement.querySelector('h5').nextSibling
+    if (foundSpan.nodeName === 'SPAN') {
+      this.log('info', 'Found contractDate element')
+      return foundSpan.textContent?.split(':')[1].trim()
+    } else {
+      throw new Error(
+        'Something went wrong finding the contractDate element, check the code'
+      )
+    }
   }
 }
 
