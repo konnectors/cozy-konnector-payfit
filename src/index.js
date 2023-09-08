@@ -592,10 +592,7 @@ class PayfitContentScript extends ContentScript {
     this.log('info', '📍️ determineClosestToDate starts')
     const foundDates = []
     for (let i = 0; i < elements.length; i++) {
-      const foundDate = elements[i]
-        .querySelector('span')
-        .textContent.split(':')[1]
-        .trim()
+      const foundDate = this.getContractDate(elements[i])
       foundDates.push(foundDate)
     }
     const actualDate = new Date()
