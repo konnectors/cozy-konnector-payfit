@@ -364,114 +364,147 @@ class PayfitContentScript extends ContentScript {
   async fetchPayslips({ context, fetchedDatesArray, i }) {
     this.log('info', '📍️ fetchPayslips starts')
     await this.navigateToPayrollsPage()
-    const numberOfBills = await this.evaluateInWorker(
-      function getNumberOfBills() {
+    await this.runInWorkerUntilTrue({
+      method: 'getPayslipsInfos'
+    })
+    const alreadyFetchedIds = []
+    const allPayslipsIds = this.store.contractBillsInfos.payslipsIds
+    const limit = 10
+    const totalIdsLength = allPayslipsIds.length
+    this.log('info', `totalIdsLength : ${totalIdsLength}`)
+    for (let j = totalIdsLength; j > 0; j -= limit) {
+      const group = Array.from(allPayslipsIds).slice(Math.max(j - limit, 0), j)
+      const fetchedIds = await this.runInWorker('getBatchOfTen', {
+        limit,
+        group
+      })
+      alreadyFetchedIds.push(...fetchedIds)
+      await this.runInWorkerUntilTrue({
+        method: 'checkInterception',
+        args: [{ type: 'bills', number: fetchedIds.length }]
+      })
+      const billsBatch = await this.runInWorker('getBills')
+      let subPath = await this.determineSubPath(fetchedDatesArray, i)
+      // RECOLLER LE BLOC SAVEBILLS
+      await this.saveFiles(billsBatch, {
+        context,
+        fileIdAttributes: ['vendorId'],
+        contentType: 'application/pdf',
+        qualificationLabel: 'pay_sheet',
+        subPath
+      })
+    }
+    await this.runInWorker('emptyInterceptionsArrays')
+  }
+
+  async getBatchOfTen(options) {
+    this.log('info', '📍️ getBatchOfTen starts')
+    const payslipsIds = []
+    await waitFor(
+      () => {
+        const foundElements = document.querySelectorAll(
+          'div[data-testid*="payslip-"] > div'
+        )
+        const foundIds = Array.from(foundElements).map(element =>
+          element.parentNode.getAttribute('data-testid')
+        )
+        if (foundIds.some(entry => entry.includes(options.group[0]))) {
+          this.log('info', 'found first id in html')
+          return true
+        } else {
+          this.log('info', 'found nothing, scrolling')
+          const beforeLast = document.querySelector(
+            '.ReactVirtualized__Grid__innerScrollContainer > div:nth-last-child(5)'
+          )
+          beforeLast.scrollIntoView({ behavior: 'instant', block: 'end' })
+          return false
+        }
+      },
+      {
+        interval: 1000,
+        timeout: 30 * 1000
+      }
+    )
+    const sectionBillsElements = document.querySelectorAll(
+      'div[data-testid*="payslip-"] > div'
+    )
+    const neededPayslips = []
+    for (const billElement of sectionBillsElements) {
+      const elementId = billElement.parentNode.getAttribute('data-testid')
+      if (options.group.includes(elementId)) {
+        neededPayslips.push(billElement)
+      }
+    }
+    for (let i = 0; i < neededPayslips.length; i++) {
+      const elementId = neededPayslips[i].parentNode.getAttribute('data-testid')
+      if (payslipsIds.includes(elementId)) {
+        continue
+      }
+      payslipsIds.push(elementId)
+      neededPayslips[i].click()
+    }
+    this.log('info', 'No need to scroll yet')
+    return payslipsIds
+  }
+
+  async getPayslipsInfos() {
+    this.log('info', '📍️ getPayslipsInfos starts')
+    const data = {
+      loopNumber: 0,
+      numberOfClickedElements: 0,
+      foundElementsLength: 0,
+      payslipsIds: []
+    }
+    await waitFor(
+      () => {
         const billsElements = document.querySelectorAll(
           'div[data-testid*="payslip-"] > div'
         )
-        for (const billElement of billsElements) {
-          billElement.click()
+        for (let i = 0; i < billsElements.length; i++) {
+          const elementId =
+            billsElements[i].parentNode.getAttribute('data-testid')
+          if (data.payslipsIds.includes(elementId)) {
+            data.loopNumber++
+            continue
+          }
+          data.payslipsIds.push(elementId)
+          data.loopNumber++
         }
-        return billsElements.length
+        data.foundElementsLength =
+          data.foundElementsLength + billsElements.length
+        let isRealLast = false
+        const maxHeight = parseInt(
+          document.querySelector(
+            '.ReactVirtualized__Grid__innerScrollContainer'
+          ).style.maxHeight,
+          10
+        )
+        const lastElem = document.querySelector(
+          '.ReactVirtualized__Grid__innerScrollContainer > div:last-child'
+        )
+        const lastElemBottom =
+          parseInt(lastElem.style.top, 10) + parseInt(lastElem.style.height, 10)
+        lastElem.scrollIntoView({ behavior: 'instant', block: 'start' })
+        isRealLast = lastElemBottom === maxHeight
+        if (isRealLast) {
+          return true
+        } else {
+          return false
+        }
+      },
+      {
+        interval: 1000,
+        timeout: 30 * 1000
       }
     )
-    await this.runInWorkerUntilTrue({
-      method: 'checkInterception',
-      args: [{ type: 'bills', number: numberOfBills }]
-    })
-    const allBills = await this.runInWorker('getBills')
-    let subPath = await this.determineSubPath(fetchedDatesArray, i)
-    // We cannot use saveBills yet as we need an amount that used to be scraped in the downloaded pdf and added afterward
-    // And this feature is not implemented in cozy-clisk yet
-    // await this.saveBills(allBills, {
-    //   context,
-    //   fileIdAttributes: ['vendorId'],
-    //   processPdf: (entry, text) => {
-    //     const formatedText = text.split('\n').join(' ').replace(/ /g, '')
+    await this.sendToPilot({ contractBillsInfos: data })
+    return true
+  }
 
-    //     // Extract PDF data before 06-2022
-    //     if (
-    //       formatedText.match(
-    //         /VIREMENT([0-9,]*)DATEDEPAIEMENT([0-9]{2})(JANVIER|FÉVRIER|MARS|AVRIL|MAI|JUIN|JUILLET|AOÛT|SEPTEMBRE|OCTOBRE|NOVEMBRE|DÉCEMBRE)([0-9]{4})/
-    //       )
-    //     ) {
-    //       const matchedStrings = text
-    //         .split('\n')
-    //         .join(' ')
-    //         .replace(/ /g, '')
-    //         .match(
-    //           /VIREMENT([0-9,]*)DATEDEPAIEMENT([0-9]{2})(JANVIER|FÉVRIER|MARS|AVRIL|MAI|JUIN|JUILLET|AOÛT|SEPTEMBRE|OCTOBRE|NOVEMBRE|DÉCEMBRE)([0-9]{4})/
-    //         )
-    //       const values = matchedStrings
-    //         .slice(1)
-    //         .map(data => data.trim().replace(/\s\s+/g, ' '))
-    //       const amount = parseFloat(
-    //         values.shift().replace(/\s/g, '').replace(',', '.')
-    //       )
-    //       const date = parse(values.join(' '), 'dd MMMM yyyy', new Date())
-    //       const companyName = entry.companyName
-
-    //       Object.assign(entry, {
-    //         periodStart: format(startOfMonth(entry.date), 'yyyy-MM-dd'),
-    //         periodEnd: format(endOfMonth(entry.date), 'yyyy-MM-dd'),
-    //         date,
-    //         amount,
-    //         vendor: 'Payfit',
-    //         type: 'pay',
-    //         employer: companyName,
-    //         matchingCriterias: {
-    //           labelRegex: `\\b${companyName}\\b`
-    //         },
-    //         isRefund: true
-    //       })
-    //       // Extract PDF data after 06-2022
-    //     } else if (
-    //       formatedText.match(/\(Virement\)[\s,0-9,+,-]+=\s+([0-9,]+)/) &&
-    //       formatedText.match(
-    //         /Datedepaiement\s*([0-9]{1,2}\/[0-9]{2}\/[0-9]{4})/
-    //       )
-    //     ) {
-    //       const amountStg = formatedText.match(
-    //         /\(Virement\)[\s,0-9,+,-]+=\s+([0-9,]+)/
-    //       )[1]
-    //       const amount = parseFloat(amountStg.replace(',', '.'))
-    //       const dateStg = formatedText.match(
-    //         /Datedepaiement\s*([0-9]{1,2}\/[0-9]{2}\/[0-9]{4})/
-    //       )[1]
-    //       const date = parse(dateStg, 'dd/MM/yyyy', new Date())
-    //       const companyName = entry.companyName
-
-    //       Object.assign(entry, {
-    //         periodStart: format(startOfMonth(entry.date), 'yyyy-MM-dd'),
-    //         periodEnd: format(endOfMonth(entry.date), 'yyyy-MM-dd'),
-    //         date,
-    //         amount,
-    //         vendor: 'Payfit',
-    //         type: 'pay',
-    //         employer: companyName,
-    //         matchingCriterias: {
-    //           labelRegex: `\\b${companyName}\\b`
-    //         },
-    //         isRefund: true
-    //       })
-    //     } else {
-    //       throw new Error('no matched string in pdf')
-    //     }
-    //   },
-    //   shouldReplaceFile: function (newBill, dbEntry) {
-    //     const result =
-    //       newBill.metadata.issueDate !==
-    //       dbEntry.fileAttributes.metadata.issueDate
-    //     return result
-    //   }
-    // })
-    await this.saveFiles(allBills, {
-      context,
-      fileIdAttributes: ['vendorId'],
-      contentType: 'application/pdf',
-      qualificationLabel: 'pay_sheet',
-      subPath
-    })
+  emptyInterceptionsArrays() {
+    this.log('info', '📍️ emptyInterceptionsArrays starts')
+    bills.length = 0
+    billsHrefs.length = 0
   }
 
   determineSubPath(fetchedDatesArray, i) {
@@ -490,14 +523,29 @@ class PayfitContentScript extends ContentScript {
 
   async navigateToPayrollsPage() {
     this.log('info', '📍️ navigateToPayrollsPage starts')
-    await this.clickAndWait(
-      'div[data-testid="mobile-menu-toggle"]',
-      'a[data-testid="menu-link:/payslips"]'
-    )
-    await this.clickAndWait(
-      'a[data-testid="menu-link:/payslips"]',
-      'div[data-testid*="payslip-"]'
-    )
+    // Burger Menu may be different from one execution to another, keeping both just in case
+    await Promise.race([
+      this.waitForElementInWorker('div[data-testid="mobile-menu-toggle"]'),
+      this.waitForElementInWorker('button')
+    ])
+    if (await this.isElementInWorker('div[data-testid="mobile-menu-toggle"]')) {
+      await this.clickAndWait(
+        'div[data-testid="mobile-menu-toggle"]',
+        'a[data-testid="menu-link:/payslips"]'
+      )
+      await this.clickAndWait(
+        'a[data-testid="menu-link:/payslips"]',
+        'div[data-testid*="payslip-"]'
+      )
+    } else {
+      await this.clickAndWait('button', 'a[href="/payslips"]')
+      await this.clickAndWait(
+        'a[href="/payslips"]',
+        'div[data-testid*="payslip-"]'
+      )
+    }
+
+    this.log('info', '📍️ navigateToPayrollsPage ends')
   }
 
   async navigateToNextContract() {
@@ -646,6 +694,7 @@ class PayfitContentScript extends ContentScript {
 
   async checkInterception(args) {
     this.log('info', `📍️ checkInterception for ${args.type} starts`)
+    this.log('info', `📍️ checkInterception for ${args.number} bills`)
     await waitFor(
       () => {
         if (args.type === 'identity') {
@@ -747,7 +796,15 @@ class PayfitContentScript extends ContentScript {
 
   async getBills() {
     this.log('info', '📍️ getBills starts')
-    const billsInfos = bills[0]
+    const billsToMatch = []
+    bills[0].forEach(bill => {
+      let matchId = billsHrefs.some(entry => entry.includes(bill.id))
+      if (matchId) {
+        billsToMatch.push(bill)
+      }
+    })
+    // const billsInfos = bills[0]
+    const billsInfos = billsToMatch
     const computedBills = []
     const accountChoice = JSON.parse(
       window.localStorage.getItem('accountChoice')
@@ -787,6 +844,7 @@ class PayfitContentScript extends ContentScript {
       computedBill.fileurl = `https://api.payfit.com/files${downloadHref}`
       computedBills.push(computedBill)
     }
+    billsHrefs.length = 0
     return computedBills
   }
 
@@ -871,7 +929,10 @@ connector
       'checkInterception',
       'getBills',
       'determineContractToSelect',
-      'getContractInfos'
+      'getContractInfos',
+      'emptyInterceptionsArrays',
+      'getPayslipsInfos',
+      'getBatchOfTen'
     ]
   })
   .catch(err => {
