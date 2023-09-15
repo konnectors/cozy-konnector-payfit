@@ -344,12 +344,15 @@ class PayfitContentScript extends ContentScript {
     })
     const alreadyFetchedIds = []
     const allPayslipsIds = this.store.contractBillsInfos.payslipsIds
+    // Limit here is needed because of download urls' expirations.
+    // We dispose of a 1 min countdown to use these urls after clicking.
+    // It's ensuring a good execution for slow connections too.
     const limit = 10
     const totalIdsLength = allPayslipsIds.length
     this.log('info', `totalIdsLength : ${totalIdsLength}`)
     for (let j = totalIdsLength; j > 0; j -= limit) {
       const group = Array.from(allPayslipsIds).slice(Math.max(j - limit, 0), j)
-      const fetchedIds = await this.runInWorker('getBatchOfTen', {
+      const fetchedIds = await this.runInWorker('showAndFetchPayslipsBatch', {
         limit,
         group
       })
@@ -360,7 +363,6 @@ class PayfitContentScript extends ContentScript {
       })
       const billsBatch = await this.runInWorker('getBills')
       let subPath = await this.determineSubPath(fetchedDatesArray, i)
-      // RECOLLER LE BLOC SAVEBILLS
       await this.saveFiles(billsBatch, {
         context,
         fileIdAttributes: ['vendorId'],
@@ -372,8 +374,8 @@ class PayfitContentScript extends ContentScript {
     await this.runInWorker('emptyInterceptionsArrays')
   }
 
-  async getBatchOfTen(options) {
-    this.log('info', '📍️ getBatchOfTen starts')
+  async showAndFetchPayslipsBatch(options) {
+    this.log('info', '📍️ showAndFetchPayslipsBatch starts')
     const payslipsIds = []
     await waitFor(
       () => {
@@ -388,6 +390,8 @@ class PayfitContentScript extends ContentScript {
           return true
         } else {
           this.log('info', 'found nothing, scrolling')
+          // Here we are force to scroll because this list creates and deletes elements according to scrolling position.
+          // To ensure we scroll over every single payslip, we're comparing the elements' ids in view with the ones we're looking for.
           const beforeLast = document.querySelector(
             '.ReactVirtualized__Grid__innerScrollContainer > div:nth-last-child(5)'
           )
@@ -755,7 +759,6 @@ class PayfitContentScript extends ContentScript {
         billsToMatch.push(bill)
       }
     })
-    // const billsInfos = bills[0]
     const billsInfos = billsToMatch
     const computedBills = []
     const accountChoice = JSON.parse(
@@ -921,7 +924,7 @@ connector
       'getContractInfos',
       'emptyInterceptionsArrays',
       'getPayslipsInfos',
-      'getBatchOfTen',
+      'showAndFetchPayslipsBatch',
       'selectMenuItem',
       'clickAccountSwitcher'
     ]
