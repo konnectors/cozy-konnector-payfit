@@ -150,11 +150,6 @@ class PayfitContentScript extends ContentScript {
 
   async ensureAuthenticated({ account }) {
     this.log('info', '🤖 ensureAuthenticated')
-    // Using a desktop userAgent is mandatory to have access to the user's personnal data
-    await this.bridge.call(
-      'setUserAgent',
-      'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/116.0'
-    )
     this.bridge.addEventListener('workerEvent', this.onWorkerEvent.bind(this))
     if (!account) {
       await this.ensureNotAuthenticated()
@@ -198,44 +193,24 @@ class PayfitContentScript extends ContentScript {
       return true
     } else {
       this.log('info', 'Already logged in, logging out')
-      if (this.isElementInWorker('button[data-testid="accountButton"]')) {
+      if (await this.isElementInWorker('button[data-testid="accountButton"]')) {
         this.log(
           'info',
           'ensureNotAuthenticated - Account selection page detected, navigating to any contract to access logout button'
         )
         await this.clickAndWait(
           'button[data-testid="accountButton"]',
-          'div[data-testid="mobile-menu-toggle"]'
+          'div[data-testid="userInfoSection"]'
         )
       }
+      await this.waitForElementInWorker('#root > div > div > div > button')
       await this.clickAndWait(
-        'div[data-testid="mobile-menu-toggle"]',
-        'div[data-testid="accountDropdown"] > button'
+        '#root > div > div > div > button',
+        'button[data-testid="account-switcher-button"]'
       )
-      await this.runInWorker(
-        'click',
-        'div[data-testid="accountDropdown"] > button'
-      )
-      await this.waitForElementInWorker('div[role="menu"]')
-      const optionId = await this.evaluateInWorker(function getMenuId() {
-        const menuElement = document.querySelector('div[role="menu"]')
-        const menuId = menuElement.getAttribute('id')
-        const menuOptionsElements = menuElement.querySelectorAll(
-          `div[id*="${menuId}"]`
-        )
-        for (let i = 0; i < menuOptionsElements.length; i++) {
-          const optionElement = menuOptionsElements[i].querySelector('span')
-          const option = optionElement.textContent
-          const optionElementId = menuOptionsElements[i].getAttribute('id')
-          if (option === 'Me déconnecter') {
-            return optionElementId
-          }
-        }
-        throw new Error(
-          'No options matched "Me déconnecter" expectations, check the code'
-        )
-      })
-      await this.clickAndWait(`#${optionId}`, '#username')
+      await this.runInWorker('clickAccountSwitcher')
+      await this.runInWorker('selectMenuItem', 'logout')
+      await this.waitForElementInWorker('#username')
       this.log('info', 'Logout OK')
     }
   }
@@ -551,36 +526,13 @@ class PayfitContentScript extends ContentScript {
   async navigateToNextContract() {
     this.log('info', '📍️ navigateToNextContract starts')
     await this.clickAndWait(
-      'div[data-testid="mobile-menu-toggle"]',
-      'div[data-testid="accountDropdown"] > button'
+      '#root > div > div > div > button',
+      'button[data-testid="account-switcher-button"]'
     )
-    await this.runInWorker(
-      'click',
-      'div[data-testid="accountDropdown"] > button'
-    )
-    await this.waitForElementInWorker('div[role="menu"]')
-    const optionId = await this.evaluateInWorker(function getMenuId() {
-      const menuElement = document.querySelector('div[role="menu"]')
-      const menuId = menuElement.getAttribute('id')
-      const menuOptionsElements = menuElement.querySelectorAll(
-        `div[id*="${menuId}"]`
-      )
-      for (let i = 0; i < menuOptionsElements.length; i++) {
-        const optionElement = menuOptionsElements[i].querySelector('span')
-        const option = optionElement.textContent
-        const optionElementId = menuOptionsElements[i].getAttribute('id')
-        if (option === 'Changer de compte') {
-          return optionElementId
-        }
-      }
-      throw new Error(
-        'No options matched "Changer de compte" expectations, check the code'
-      )
-    })
-    await this.clickAndWait(
-      `#${optionId}`,
-      'button[data-testid="accountButton"]'
-    )
+    await this.runInWorker('clickAccountSwitcher')
+    await this.waitForElementInWorker('div[role="menuitem"]')
+    await this.runInWorker('selectMenuItem', 'changeAccount')
+    await this.waitForElementInWorker('button[data-testid="accountButton"]')
     const datesArray = this.store.fetchedDates
     const numberOfContracts = this.store.numberOfContracts
     const lastContract = await this.runInWorker(
@@ -913,6 +865,43 @@ class PayfitContentScript extends ContentScript {
       )
     }
   }
+
+  async selectMenuItem(type) {
+    this.log('info', '📍️ selectMenuItem starts')
+    const wantedType =
+      type === 'logout' ? 'Me déconnecter' : 'Changer de compte'
+    const menuItems = document.querySelectorAll('div[role="menuitem"]')
+    let wantedItemFound = false
+    for (let i = 0; i < menuItems.length; i++) {
+      const optionElement = menuItems[i].querySelector('span')
+      const option = optionElement.textContent
+      if (option === wantedType) {
+        menuItems[i].childNodes[0].click()
+        wantedItemFound = true
+        break
+      }
+    }
+    if (wantedItemFound) {
+      return true
+    } else {
+      throw new Error(
+        `No options matched "${wantedType}" expectations, check the code`
+      )
+    }
+  }
+
+  async clickAccountSwitcher() {
+    this.log('info', '📍️ clickAccountSwitcher starts')
+    const searchedId = document
+      .querySelector('button[data-testid="account-switcher-button"]')
+      .getAttribute('id')
+    const element = document.querySelector(`#${searchedId}`)
+
+    const propsName = Object.keys(element).find(e =>
+      e.startsWith('__reactProps')
+    )
+    element[propsName].onPointerDown(new PointerEvent('click'))
+  }
 }
 
 function getDateFromAbsoluteMonth(absoluteMonth) {
@@ -932,7 +921,9 @@ connector
       'getContractInfos',
       'emptyInterceptionsArrays',
       'getPayslipsInfos',
-      'getBatchOfTen'
+      'getBatchOfTen',
+      'selectMenuItem',
+      'clickAccountSwitcher'
     ]
   })
   .catch(err => {
