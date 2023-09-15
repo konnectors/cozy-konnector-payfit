@@ -404,24 +404,9 @@ class PayfitContentScript extends ContentScript {
         timeout: 30 * 1000
       }
     )
-    const sectionBillsElements = document.querySelectorAll(
-      'div[data-testid*="payslip-"] > div'
-    )
-    const neededPayslips = []
-    for (const billElement of sectionBillsElements) {
-      const elementId = billElement.parentNode.getAttribute('data-testid')
-      if (options.group.includes(elementId)) {
-        neededPayslips.push(billElement)
-      }
-    }
-    for (let i = 0; i < neededPayslips.length; i++) {
-      const elementId = neededPayslips[i].parentNode.getAttribute('data-testid')
-      if (payslipsIds.includes(elementId)) {
-        continue
-      }
-      payslipsIds.push(elementId)
-      neededPayslips[i].click()
-    }
+    const neededPayslips = this.determinePayslipsToFetch(options.group)
+    const clickedPayslips = this.clickNeededPayslips(neededPayslips)
+    payslipsIds.push(...clickedPayslips)
     this.log('info', 'No need to scroll yet')
     return payslipsIds
   }
@@ -650,7 +635,6 @@ class PayfitContentScript extends ContentScript {
 
   async checkInterception(args) {
     this.log('info', `📍️ checkInterception for ${args.type} starts`)
-    this.log('info', `📍️ checkInterception for ${args.number} bills`)
     await waitFor(
       () => {
         if (args.type === 'identity') {
@@ -661,6 +645,7 @@ class PayfitContentScript extends ContentScript {
           return false
         }
         if (args.type === 'bills') {
+          this.log('info', `📍️ checkInterception for ${args.number} bills`)
           if (bills.length > 0 && billsHrefs.length === args.number) {
             this.log('info', 'bills interception OK')
             return true
@@ -904,6 +889,35 @@ class PayfitContentScript extends ContentScript {
       e.startsWith('__reactProps')
     )
     element[propsName].onPointerDown(new PointerEvent('click'))
+  }
+
+  determinePayslipsToFetch(group) {
+    this.log('info', '📍️ determinePayslipsToFetch starts')
+    const neededPayslips = []
+    const sectionBillsElements = document.querySelectorAll(
+      'div[data-testid*="payslip-"] > div'
+    )
+    for (const billElement of sectionBillsElements) {
+      const elementId = billElement.parentNode.getAttribute('data-testid')
+      if (group.includes(elementId)) {
+        neededPayslips.push(billElement)
+      }
+    }
+    return neededPayslips
+  }
+
+  clickNeededPayslips(neededPayslips) {
+    this.log('info', '📍️ clickNeededPayslips starts')
+    const payslipsIds = []
+    for (let i = 0; i < neededPayslips.length; i++) {
+      const elementId = neededPayslips[i].parentNode.getAttribute('data-testid')
+      if (payslipsIds.includes(elementId)) {
+        continue
+      }
+      payslipsIds.push(elementId)
+      neededPayslips[i].click()
+    }
+    return payslipsIds
   }
 }
 
