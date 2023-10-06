@@ -35,6 +35,10 @@
       "type": "io.cozy.identities"
     }
   },
+  "developer": {
+    "name": "Cozy Cloud",
+    "url": "https://cozy.io"
+  },
   "locales": {
     "fr": {
       "short_description": "Récupère vos fiches de paie Payfit.",
