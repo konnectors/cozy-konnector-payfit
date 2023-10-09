@@ -8357,6 +8357,7 @@ class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTE
       return true
     } catch (err) {
       this.log('error', `❌ ensureAuthenticated error message : ${err.message}`)
+      throw err
     }
   }
 
@@ -8486,6 +8487,7 @@ class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTE
         'error',
         `❌ getUserDataFromWebsite error message : ${err.message}`
       )
+      throw err
     }
   }
 
@@ -8519,6 +8521,7 @@ class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTE
       }
     } catch (err) {
       this.log('error', `❌ fetch error message : ${err.message}`)
+      throw err
     }
   }
 
