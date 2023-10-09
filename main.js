@@ -8320,40 +8320,44 @@ class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTE
   }
 
   async ensureAuthenticated({ account }) {
-    this.log('info', '🤖 ensureAuthenticated')
-    this.bridge.addEventListener('workerEvent', this.onWorkerEvent.bind(this))
-    if (!account) {
-      await this.ensureNotAuthenticated()
-    }
-    if (!(await this.isElementInWorker('#username'))) {
-      await this.navigateToLoginForm()
-    }
-    const authenticated = await this.runInWorker('checkAuthenticated')
-    if (!authenticated) {
-      this.log('info', 'Not authenticated')
-      const credentials = await this.getCredentials()
-      if (credentials) {
-        try {
-          await this.autoLogin(credentials)
-          this.log('info', 'autoLogin succesful')
-        } catch {
-          this.log(
-            'info',
-            'Something went wrong with autoLogin, letting user log in'
-          )
+    try {
+      this.log('info', '🤖 ensureAuthenticated')
+      this.bridge.addEventListener('workerEvent', this.onWorkerEvent.bind(this))
+      if (!account) {
+        await this.ensureNotAuthenticated()
+      }
+      if (!(await this.isElementInWorker('#username'))) {
+        await this.navigateToLoginForm()
+      }
+      const authenticated = await this.runInWorker('checkAuthenticated')
+      if (!authenticated) {
+        this.log('info', 'Not authenticated')
+        const credentials = await this.getCredentials()
+        if (credentials) {
+          try {
+            await this.autoLogin(credentials)
+            this.log('info', 'autoLogin succesful')
+          } catch {
+            this.log(
+              'info',
+              'Something went wrong with autoLogin, letting user log in'
+            )
+            await this.showLoginFormAndWaitForAuthentication()
+          }
+        } else {
           await this.showLoginFormAndWaitForAuthentication()
         }
-      } else {
-        await this.showLoginFormAndWaitForAuthentication()
       }
-    }
-    if (await this.isElementInWorker('#code')) {
-      this.log('info', 'Waiting for 2FA ...')
+      if (await this.isElementInWorker('#code')) {
+        this.log('info', 'Waiting for 2FA ...')
+        this.unblockWorkerInteractions()
+        await this.show2FAFormAndWaitForInput()
+      }
       this.unblockWorkerInteractions()
-      await this.show2FAFormAndWaitForInput()
+      return true
+    } catch (err) {
+      this.log('error', `❌ ensureAuthenticated error message : ${err.message}`)
     }
-    this.unblockWorkerInteractions()
-    return true
   }
 
   async ensureNotAuthenticated() {
@@ -8448,62 +8452,73 @@ class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTE
   }
 
   async getUserDataFromWebsite() {
-    this.log('info', '🤖 getUserDataFromWebsite')
-    if (await this.isElementInWorker('button[data-testid="accountButton"]')) {
-      await this.runInWorker('selectClosestToDateContract')
-      this.log('info', `Found ${this.store.numberOfContracts} contracts`)
-    }
-    await Promise.all([
-      this.waitForElementInWorker('div[data-testid="userInfoSection"]'),
-      this.waitForElementInWorker(
-        'div[data-testid="dashboardBulletsContractStart"]'
-      )
-    ])
-    await this.runInWorker('getContractInfos')
-    await this.goto(personalInfosUrl)
-    await this.waitForElementInWorker(
-      'button[data-testid="changePersonalInformationButton"]'
-    )
-    await this.runInWorkerUntilTrue({
-      method: 'checkInterception',
-      args: [{ type: 'identity' }]
-    })
-    await this.runInWorker('getIdentity')
-    if (this.store.userIdentity.email[0]?.address) {
-      return {
-        sourceAccountIdentifier: this.store.userIdentity.email[0].address
+    try {
+      this.log('info', '🤖 getUserDataFromWebsite')
+      if (await this.isElementInWorker('button[data-testid="accountButton"]')) {
+        await this.runInWorker('selectClosestToDateContract')
+        this.log('info', `Found ${this.store.numberOfContracts} contracts`)
       }
-    } else {
-      throw new Error('No email found for identity')
+      await Promise.all([
+        this.waitForElementInWorker('div[data-testid="userInfoSection"]'),
+        this.waitForElementInWorker(
+          'div[data-testid="dashboardBulletsContractStart"]'
+        )
+      ])
+      await this.runInWorker('getContractInfos')
+      await this.goto(personalInfosUrl)
+      await this.waitForElementInWorker(
+        'button[data-testid="changePersonalInformationButton"]'
+      )
+      await this.runInWorkerUntilTrue({
+        method: 'checkInterception',
+        args: [{ type: 'identity' }]
+      })
+      await this.runInWorker('getIdentity')
+      if (this.store.userIdentity.email[0]?.address) {
+        return {
+          sourceAccountIdentifier: this.store.userIdentity.email[0].address
+        }
+      } else {
+        throw new Error('No email found for identity')
+      }
+    } catch (err) {
+      this.log(
+        'error',
+        `❌ getUserDataFromWebsite error message : ${err.message}`
+      )
     }
   }
 
   async fetch(context) {
-    this.log('info', '🤖 fetch')
-    if (this.store && this.store.userCredentials) {
-      this.log('info', 'Saving credentials ...')
-      await this.saveCredentials(this.store.userCredentials)
-    }
-    if (this.store.userIdentity) {
-      this.log('info', 'Saving identity ...')
-      await this.saveIdentity({ contact: this.store.userIdentity })
-    }
-    const foundNumberOfContracts = this.store.numberOfContracts
-      ? this.store.numberOfContracts
-      : 1
-    for (let i = 0; i < foundNumberOfContracts; i++) {
-      this.log(
-        'info',
-        `Fetching ${i + 1}/${foundNumberOfContracts} contract ...`
-      )
-      await this.fetchPayslips({
-        context,
-        fetchedDates: this.store.fetchedDates,
-        i
-      })
-      if (foundNumberOfContracts > 1) {
-        await this.navigateToNextContract()
+    try {
+      this.log('info', '🤖 fetch')
+      if (this.store && this.store.userCredentials) {
+        this.log('info', 'Saving credentials ...')
+        await this.saveCredentials(this.store.userCredentials)
       }
+      if (this.store.userIdentity) {
+        this.log('info', 'Saving identity ...')
+        await this.saveIdentity({ contact: this.store.userIdentity })
+      }
+      const foundNumberOfContracts = this.store.numberOfContracts
+        ? this.store.numberOfContracts
+        : 1
+      for (let i = 0; i < foundNumberOfContracts; i++) {
+        this.log(
+          'info',
+          `Fetching ${i + 1}/${foundNumberOfContracts} contract ...`
+        )
+        await this.fetchPayslips({
+          context,
+          fetchedDates: this.store.fetchedDates,
+          i
+        })
+        if (foundNumberOfContracts > 1) {
+          await this.navigateToNextContract()
+        }
+      }
+    } catch (err) {
+      this.log('error', `❌ fetch error message : ${err.message}`)
     }
   }
 
