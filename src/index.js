@@ -84,6 +84,9 @@ window.XMLHttpRequest.prototype.open = function () {
   }
 }
 
+const burgerButtonSVGSelector =
+  '[d="M2 15.5v2h20v-2H2zm0-5v2h20v-2H2zm0-5v2h20v-2H2z"]'
+
 class PayfitContentScript extends ContentScript {
   addSubmitButtonListener() {
     const formElement = document.querySelector('form')
@@ -143,7 +146,7 @@ class PayfitContentScript extends ContentScript {
     await this.goto(baseUrl)
     await Promise.race([
       this.waitForElementInWorker('#username'),
-      this.waitForElementInWorker('div[data-testid="userInfoSection"]'),
+      this.waitForElementInWorker(burgerButtonSVGSelector),
       this.waitForElementInWorker('button[data-testid="accountButton"]')
     ])
   }
@@ -205,7 +208,7 @@ class PayfitContentScript extends ContentScript {
         )
         await this.clickAndWait(
           'button[data-testid="accountButton"]',
-          'div[data-testid="userInfoSection"]'
+          burgerButtonSVGSelector
         )
       }
       await this.waitForElementInWorker('#root > div > div > div > button')
@@ -230,7 +233,7 @@ class PayfitContentScript extends ContentScript {
       this.log('info', 'Login OK - Account selection needed')
       return true
     }
-    if (document.querySelector('div[data-testid="userInfoSection"]')) {
+    if (document.querySelector(burgerButtonSVGSelector)) {
       this.log('info', 'Login OK')
       return true
     }
@@ -275,7 +278,7 @@ class PayfitContentScript extends ContentScript {
     )
     await this.runInWorker('click', passwordSubmitButtonSelector)
     await this.Promise.race([
-      this.waitForElementInWorker('div[data-testid="userInfoSection"]'),
+      this.waitForElementInWorker(burgerButtonSVGSelector),
       this.waitForElementInWorker('#code'),
       this.waitForElementInWorker('button[data-testid="accountButton"]')
     ])
@@ -289,11 +292,16 @@ class PayfitContentScript extends ContentScript {
         this.log('info', `Found ${this.store.numberOfContracts} contracts`)
       }
       await Promise.all([
-        this.waitForElementInWorker('div[data-testid="userInfoSection"]'),
-        this.waitForElementInWorker(
-          'div[data-testid="dashboardBulletsContractStart"]'
-        )
+        this.waitForElementInWorker(burgerButtonSVGSelector),
+        this.waitForElementInWorker('div[direction="row"]  span')
       ])
+      this.store.profilButtonClass = await this.runInWorker(
+        'getProfilButtonClass'
+      )
+      await this.clickAndWait(
+        `button[class="${this.store.profilButtonClass}"]`,
+        'span[id]'
+      )
       await this.runInWorker('getContractInfos')
       await this.goto(personalInfosUrl)
       await this.waitForElementInWorker(
@@ -351,6 +359,16 @@ class PayfitContentScript extends ContentScript {
     } catch (err) {
       this.log('error', `❌ fetch error message : ${err.message}`)
       throw err
+    }
+  }
+
+  async getProfilButtonClass() {
+    this.log('info', '📍️ getProfilButtonClass starts')
+    const elements = document.querySelectorAll('div[direction="row"]  span')
+    for (const element of elements) {
+      if (element.textContent.match(/[A-Z]{2}/g)) {
+        return element.closest('button').getAttribute('class')
+      }
     }
   }
 
@@ -549,10 +567,10 @@ class PayfitContentScript extends ContentScript {
     )
     if (lastContract) {
       await this.runInWorker('selectClosestToDateContract')
-      await this.waitForElementInWorker('div[data-testid="userInfoSection"]')
+      await this.waitForElementInWorker(burgerButtonSVGSelector)
       return true
     }
-    await this.waitForElementInWorker('div[data-testid="userInfoSection"]')
+    await this.waitForElementInWorker(burgerButtonSVGSelector)
     const contractInfos = this.store.contractsInfos
     await this.runInWorker('getContractInfos', contractInfos)
   }
@@ -561,7 +579,7 @@ class PayfitContentScript extends ContentScript {
     this.log('info', 'waitFor2FA starts')
     await waitFor(
       () => {
-        if (document.querySelector('div[data-testid="userInfoSection"]')) {
+        if (document.querySelector(burgerButtonSVGSelector)) {
           this.log('info', '2FA OK - Land on home')
           return true
         } else if (
@@ -629,17 +647,33 @@ class PayfitContentScript extends ContentScript {
       for (const contractInfos of contractsInfos)
         allContractsInfos.push(contractInfos)
     }
-    const startDate = document
-      .querySelector('div[data-testid="dashboardBulletsContractStart"]')
-      .textContent.split('contrat')[1]
-      .replace(/\//g, '-')
-    const endDate = document
-      .querySelector('div[data-testid="dashboardBulletsContractEnd"]')
-      ?.textContent.split('contrat')[1]
-      .replace(/\//g, '-')
-    const type = document
-      .querySelector('div[data-testid="dashboardBulletsContractType"]')
-      .textContent.split('contrat')[1]
+    const spansWithId = document.querySelectorAll('span[id]')
+    const spansTextcontent = []
+    spansWithId.forEach(span => {
+      const siblings = Array.from(span.parentNode.children)
+      siblings.forEach(sibling => {
+        const divsWithDirectionRow = Array.from(
+          sibling.querySelectorAll('div[direction="row"]')
+        )
+        divsWithDirectionRow.forEach(element => {
+          spansTextcontent.push(element.textContent)
+        })
+      })
+    })
+    let startDate
+    let endDate
+    let type
+    spansTextcontent.forEach(string => {
+      if (string.includes('embauche')) {
+        startDate = string.split('embauche')[1].replace(/\//g, '-')
+      } else if (string.includes('fin')) {
+        endDate = string.split('fin')[1].replace(/\//g, '-')
+      } else if (string.includes('Type')) {
+        type = string.split('contrat')[1]
+      } else {
+        this.log('info', 'includes nothing')
+      }
+    })
     const contract = {
       startDate,
       type
@@ -949,6 +983,7 @@ connector
     additionalExposedMethodsNames: [
       'waitFor2FA',
       'selectClosestToDateContract',
+      'getProfilButtonClass',
       'getIdentity',
       'checkInterception',
       'getBills',
