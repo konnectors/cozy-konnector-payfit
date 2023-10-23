@@ -649,17 +649,36 @@ class PayfitContentScript extends ContentScript {
     }
     const spansWithId = document.querySelectorAll('span[id]')
     const spansTextcontent = []
-    spansWithId.forEach(span => {
-      const siblings = Array.from(span.parentNode.children)
-      siblings.forEach(sibling => {
-        const divsWithDirectionRow = Array.from(
-          sibling.querySelectorAll('div[direction="row"]')
-        )
-        divsWithDirectionRow.forEach(element => {
-          spansTextcontent.push(element.textContent)
+    await waitFor(
+      () => {
+        spansWithId.forEach(span => {
+          const siblings = Array.from(span.parentNode.children)
+          siblings.forEach(sibling => {
+            const divsWithDirectionRow = Array.from(
+              sibling.querySelectorAll('div[direction="row"]')
+            )
+            divsWithDirectionRow.forEach(element => {
+              spansTextcontent.push(element.textContent)
+            })
+          })
         })
-      })
-    })
+        // We could find at the moment 4 elements maximum.
+        // As we just need the first two, if the length is equal 2 we carry on
+        if (spansTextcontent.length >= 2) {
+          return true
+        } else {
+          this.log('info', 'ContractInfos are not fully loaded, waiting ...')
+          // If infos are not fully loaded, we're emptying the array
+          // so it does not accumulate any loaded info on every lap
+          spansTextcontent.length = 0
+          return false
+        }
+      },
+      {
+        interval: 1000,
+        timeout: 30 * 1000
+      }
+    )
     let startDate
     let endDate
     let type
