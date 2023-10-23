@@ -581,7 +581,9 @@ class PayfitContentScript extends ContentScript {
     )
     if (lastContract) {
       await this.runInWorker('selectClosestToDateContract')
-      await this.waitForElementInWorker(burgerButtonSVGSelector)
+      await this.waitForElementInWorker(
+        `button[class="${this.store.profilButtonClass}"]`
+      )
       return true
     }
     await Promise.all([
