@@ -211,9 +211,18 @@ class PayfitContentScript extends ContentScript {
           burgerButtonSVGSelector
         )
       }
-      await this.waitForElementInWorker('#root > div > div > div > button')
+      await this.waitForElementInWorker(burgerButtonSVGSelector)
+      const burgerButtonClass = await this.evaluateInWorker(
+        function getBurgerButtonClass(selector) {
+          return document
+            .querySelector(selector)
+            .closest('button')
+            .getAttribute('class')
+        },
+        [burgerButtonSVGSelector]
+      )
       await this.clickAndWait(
-        '#root > div > div > div > button',
+        `[class="${burgerButtonClass}"]`,
         'button[data-testid="account-switcher-button"]'
       )
       await this.runInWorker('clickAccountSwitcher')
@@ -509,49 +518,54 @@ class PayfitContentScript extends ContentScript {
 
   determineSubPath(fetchedDatesArray, i) {
     this.log('info', '📍️ determineSubPath starts')
-    let subPath = `${this.store.companyName} - ${this.store.contractsInfos[i].type}`
+    let subPath = `${this.store.companyName} - ${this.store.contractsInfos[0].type}`
     if (!fetchedDatesArray) {
-      subPath = `${subPath} - ${this.store.contractsInfos[i].startDate}`
+      subPath = `${subPath} - ${this.store.contractsInfos[0].startDate}`
     } else {
       subPath = `${subPath} - ${fetchedDatesArray[i]}`
     }
-    if (this.store.contractsInfos[i].endDate) {
-      subPath = `${subPath} → ${this.store.contractsInfos[i].endDate}`
+    if (this.store.contractsInfos[0].endDate) {
+      subPath = `${subPath} → ${this.store.contractsInfos[0].endDate}`
     }
     return subPath
   }
 
   async navigateToPayrollsPage() {
     this.log('info', '📍️ navigateToPayrollsPage starts')
-    // Burger Menu may be different from one execution to another, keeping both just in case
-    await Promise.race([
-      this.waitForElementInWorker('div[data-testid="mobile-menu-toggle"]'),
-      this.waitForElementInWorker('button')
-    ])
-    if (await this.isElementInWorker('div[data-testid="mobile-menu-toggle"]')) {
-      await this.clickAndWait(
-        'div[data-testid="mobile-menu-toggle"]',
-        'a[data-testid="menu-link:/payslips"]'
-      )
-      await this.clickAndWait(
-        'a[data-testid="menu-link:/payslips"]',
-        'div[data-testid*="payslip-"]'
-      )
-    } else {
-      await this.clickAndWait('button', 'a[href="/payslips"]')
-      await this.clickAndWait(
-        'a[href="/payslips"]',
-        'div[data-testid*="payslip-"]'
-      )
-    }
-
+    await this.waitForElementInWorker(burgerButtonSVGSelector)
+    const burgerButtonClass = await this.evaluateInWorker(
+      function getBurgerButtonClass(selector) {
+        return document
+          .querySelector(selector)
+          .closest('button')
+          .getAttribute('class')
+      },
+      [burgerButtonSVGSelector]
+    )
+    await this.clickAndWait(
+      `[class="${burgerButtonClass}"]`,
+      'a[href="/payslips"]'
+    )
+    await this.clickAndWait(
+      'a[href="/payslips"]',
+      'div[data-testid*="payslip-"]'
+    )
     this.log('info', '📍️ navigateToPayrollsPage ends')
   }
 
   async navigateToNextContract() {
     this.log('info', '📍️ navigateToNextContract starts')
+    const burgerButtonClass = await this.evaluateInWorker(
+      function getBurgerButtonClass(selector) {
+        return document
+          .querySelector(selector)
+          .closest('button')
+          .getAttribute('class')
+      },
+      [burgerButtonSVGSelector]
+    )
     await this.clickAndWait(
-      '#root > div > div > div > button',
+      `[class="${burgerButtonClass}"]`,
       'button[data-testid="account-switcher-button"]'
     )
     await this.runInWorker('clickAccountSwitcher')
@@ -570,9 +584,18 @@ class PayfitContentScript extends ContentScript {
       await this.waitForElementInWorker(burgerButtonSVGSelector)
       return true
     }
-    await this.waitForElementInWorker(burgerButtonSVGSelector)
-    const contractInfos = this.store.contractsInfos
-    await this.runInWorker('getContractInfos', contractInfos)
+    await Promise.all([
+      this.waitForElementInWorker(burgerButtonSVGSelector),
+      this.waitForElementInWorker('div[direction="row"]  span')
+    ])
+    this.store.profilButtonClass = await this.runInWorker(
+      'getProfilButtonClass'
+    )
+    await this.clickAndWait(
+      `button[class="${this.store.profilButtonClass}"]`,
+      'span[id]'
+    )
+    await this.runInWorker('getContractInfos')
   }
 
   async waitFor2FA() {
@@ -640,13 +663,9 @@ class PayfitContentScript extends ContentScript {
     return numberOfContracts
   }
 
-  async getContractInfos(contractsInfos) {
+  async getContractInfos() {
     this.log('info', '📍️ getContractInfos starts')
     const allContractsInfos = []
-    if (contractsInfos) {
-      for (const contractInfos of contractsInfos)
-        allContractsInfos.push(contractInfos)
-    }
     const spansWithId = document.querySelectorAll('span[id]')
     const spansTextcontent = []
     await waitFor(
