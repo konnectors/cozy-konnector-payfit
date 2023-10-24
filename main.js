@@ -8176,6 +8176,8 @@ __webpack_require__.r(__webpack_exports__);
 const log = _cozy_minilog__WEBPACK_IMPORTED_MODULE_1___default()('ContentScript')
 _cozy_minilog__WEBPACK_IMPORTED_MODULE_1___default().enable('payfitCCC')
 
+let FORCE_FETCH_ALL = false
+
 const baseUrl = 'https://app.payfit.com/'
 const personalInfosUrl = `${baseUrl}settings/profile`
 
@@ -8255,6 +8257,9 @@ window.XMLHttpRequest.prototype.open = function () {
   }
 }
 
+const burgerButtonSVGSelector =
+  '[d="M2 15.5v2h20v-2H2zm0-5v2h20v-2H2zm0-5v2h20v-2H2z"]'
+
 class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTED_MODULE_0__.ContentScript {
   addSubmitButtonListener() {
     const formElement = document.querySelector('form')
@@ -8314,7 +8319,7 @@ class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTE
     await this.goto(baseUrl)
     await Promise.race([
       this.waitForElementInWorker('#username'),
-      this.waitForElementInWorker('div[data-testid="userInfoSection"]'),
+      this.waitForElementInWorker(burgerButtonSVGSelector),
       this.waitForElementInWorker('button[data-testid="accountButton"]')
     ])
   }
@@ -8376,12 +8381,21 @@ class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTE
         )
         await this.clickAndWait(
           'button[data-testid="accountButton"]',
-          'div[data-testid="userInfoSection"]'
+          burgerButtonSVGSelector
         )
       }
-      await this.waitForElementInWorker('#root > div > div > div > button')
+      await this.waitForElementInWorker(burgerButtonSVGSelector)
+      const burgerButtonClass = await this.evaluateInWorker(
+        function getBurgerButtonClass(selector) {
+          return document
+            .querySelector(selector)
+            .closest('button')
+            .getAttribute('class')
+        },
+        [burgerButtonSVGSelector]
+      )
       await this.clickAndWait(
-        '#root > div > div > div > button',
+        `[class="${burgerButtonClass}"]`,
         'button[data-testid="account-switcher-button"]'
       )
       await this.runInWorker('clickAccountSwitcher')
@@ -8401,7 +8415,7 @@ class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTE
       this.log('info', 'Login OK - Account selection needed')
       return true
     }
-    if (document.querySelector('div[data-testid="userInfoSection"]')) {
+    if (document.querySelector(burgerButtonSVGSelector)) {
       this.log('info', 'Login OK')
       return true
     }
@@ -8446,7 +8460,7 @@ class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTE
     )
     await this.runInWorker('click', passwordSubmitButtonSelector)
     await this.Promise.race([
-      this.waitForElementInWorker('div[data-testid="userInfoSection"]'),
+      this.waitForElementInWorker(burgerButtonSVGSelector),
       this.waitForElementInWorker('#code'),
       this.waitForElementInWorker('button[data-testid="accountButton"]')
     ])
@@ -8460,11 +8474,16 @@ class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTE
         this.log('info', `Found ${this.store.numberOfContracts} contracts`)
       }
       await Promise.all([
-        this.waitForElementInWorker('div[data-testid="userInfoSection"]'),
-        this.waitForElementInWorker(
-          'div[data-testid="dashboardBulletsContractStart"]'
-        )
+        this.waitForElementInWorker(burgerButtonSVGSelector),
+        this.waitForElementInWorker('div[direction="row"]  span')
       ])
+      this.store.profilButtonClass = await this.runInWorker(
+        'getProfilButtonClass'
+      )
+      await this.clickAndWait(
+        `button[class="${this.store.profilButtonClass}"]`,
+        'span[id]'
+      )
       await this.runInWorker('getContractInfos')
       await this.goto(personalInfosUrl)
       await this.waitForElementInWorker(
@@ -8494,6 +8513,22 @@ class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTE
   async fetch(context) {
     try {
       this.log('info', '🤖 fetch')
+      const { trigger } = context
+      // force fetch all data (the long way) when last trigger execution is older than 30 days
+      // or when the last job was an error
+      const isLastJobError =
+        trigger.current_state?.last_failure >
+        trigger.current_state?.last_success
+      const hasLastExecution = Boolean(trigger.current_state?.last_execution)
+      const distanceInDays = getDateDistanceInDays(
+        trigger.current_state?.last_execution
+      )
+      if (distanceInDays >= 30 || !hasLastExecution || isLastJobError) {
+        this.log('debug', `isLastJobError: ${isLastJobError}`)
+        this.log('debug', `distanceInDays: ${distanceInDays}`)
+        this.log('debug', `hasLastExecution: ${hasLastExecution}`)
+        FORCE_FETCH_ALL = true
+      }
       if (this.store && this.store.userCredentials) {
         this.log('info', 'Saving credentials ...')
         await this.saveCredentials(this.store.userCredentials)
@@ -8502,9 +8537,12 @@ class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTE
         this.log('info', 'Saving identity ...')
         await this.saveIdentity({ contact: this.store.userIdentity })
       }
-      const foundNumberOfContracts = this.store.numberOfContracts
-        ? this.store.numberOfContracts
-        : 1
+      let foundNumberOfContracts
+      if (!this.store.numberOfContracts || !FORCE_FETCH_ALL) {
+        foundNumberOfContracts = 1
+      } else {
+        foundNumberOfContracts = this.store.numberOfContracts
+      }
       for (let i = 0; i < foundNumberOfContracts; i++) {
         this.log(
           'info',
@@ -8513,7 +8551,8 @@ class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTE
         await this.fetchPayslips({
           context,
           fetchedDates: this.store.fetchedDates,
-          i
+          i,
+          FORCE_FETCH_ALL
         })
         if (foundNumberOfContracts > 1) {
           await this.navigateToNextContract()
@@ -8525,11 +8564,22 @@ class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTE
     }
   }
 
-  async fetchPayslips({ context, fetchedDatesArray, i }) {
+  async getProfilButtonClass() {
+    this.log('info', '📍️ getProfilButtonClass starts')
+    const elements = document.querySelectorAll('div[direction="row"]  span')
+    for (const element of elements) {
+      if (element.textContent.match(/[A-Z]{2}/g)) {
+        return element.closest('button').getAttribute('class')
+      }
+    }
+  }
+
+  async fetchPayslips({ context, fetchedDatesArray, i, FORCE_FETCH_ALL }) {
     this.log('info', '📍️ fetchPayslips starts')
     await this.navigateToPayrollsPage()
     await this.runInWorkerUntilTrue({
-      method: 'getPayslipsInfos'
+      method: 'getPayslipsInfos',
+      args: [FORCE_FETCH_ALL]
     })
     const alreadyFetchedIds = []
     const allPayslipsIds = this.store.contractBillsInfos.payslipsIds
@@ -8600,7 +8650,7 @@ class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTE
     return payslipsIds
   }
 
-  async getPayslipsInfos() {
+  async getPayslipsInfos(FORCE_FETCH_ALL) {
     this.log('info', '📍️ getPayslipsInfos starts')
     const data = {
       loopNumber: 0,
@@ -8608,12 +8658,23 @@ class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTE
       foundElementsLength: 0,
       payslipsIds: []
     }
+    const fetchAll = FORCE_FETCH_ALL
     await (0,p_wait_for__WEBPACK_IMPORTED_MODULE_2__["default"])(
       () => {
+        let numberToFetch
         const billsElements = document.querySelectorAll(
           'div[data-testid*="payslip-"] > div'
         )
-        for (let i = 0; i < billsElements.length; i++) {
+        if (!fetchAll) {
+          // If we don't need to fetch everything, we're limiting the fetching at 3 payslips
+          // Ensuring enough cover for in-between situtations such has lastExecution at the end of a month with no bill to fetch yet for this month
+          this.log('info', 'fetchAll is false, fetching the last 3 payslips')
+          numberToFetch = 3
+        } else {
+          this.log('info', 'Fetching all payslips')
+          numberToFetch = billsElements.length
+        }
+        for (let i = 0; i < numberToFetch; i++) {
           const elementId =
             billsElements[i].parentNode.getAttribute('data-testid')
           if (data.payslipsIds.includes(elementId)) {
@@ -8662,49 +8723,54 @@ class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTE
 
   determineSubPath(fetchedDatesArray, i) {
     this.log('info', '📍️ determineSubPath starts')
-    let subPath = `${this.store.companyName} - ${this.store.contractsInfos[i].type}`
+    let subPath = `${this.store.companyName} - ${this.store.contractsInfos[0].type}`
     if (!fetchedDatesArray) {
-      subPath = `${subPath} - ${this.store.contractsInfos[i].startDate}`
+      subPath = `${subPath} - ${this.store.contractsInfos[0].startDate}`
     } else {
       subPath = `${subPath} - ${fetchedDatesArray[i]}`
     }
-    if (this.store.contractsInfos[i].endDate) {
-      subPath = `${subPath} → ${this.store.contractsInfos[i].endDate}`
+    if (this.store.contractsInfos[0].endDate) {
+      subPath = `${subPath} → ${this.store.contractsInfos[0].endDate}`
     }
     return subPath
   }
 
   async navigateToPayrollsPage() {
     this.log('info', '📍️ navigateToPayrollsPage starts')
-    // Burger Menu may be different from one execution to another, keeping both just in case
-    await Promise.race([
-      this.waitForElementInWorker('div[data-testid="mobile-menu-toggle"]'),
-      this.waitForElementInWorker('button')
-    ])
-    if (await this.isElementInWorker('div[data-testid="mobile-menu-toggle"]')) {
-      await this.clickAndWait(
-        'div[data-testid="mobile-menu-toggle"]',
-        'a[data-testid="menu-link:/payslips"]'
-      )
-      await this.clickAndWait(
-        'a[data-testid="menu-link:/payslips"]',
-        'div[data-testid*="payslip-"]'
-      )
-    } else {
-      await this.clickAndWait('button', 'a[href="/payslips"]')
-      await this.clickAndWait(
-        'a[href="/payslips"]',
-        'div[data-testid*="payslip-"]'
-      )
-    }
-
+    await this.waitForElementInWorker(burgerButtonSVGSelector)
+    const burgerButtonClass = await this.evaluateInWorker(
+      function getBurgerButtonClass(selector) {
+        return document
+          .querySelector(selector)
+          .closest('button')
+          .getAttribute('class')
+      },
+      [burgerButtonSVGSelector]
+    )
+    await this.clickAndWait(
+      `[class="${burgerButtonClass}"]`,
+      'a[href="/payslips"]'
+    )
+    await this.clickAndWait(
+      'a[href="/payslips"]',
+      'div[data-testid*="payslip-"]'
+    )
     this.log('info', '📍️ navigateToPayrollsPage ends')
   }
 
   async navigateToNextContract() {
     this.log('info', '📍️ navigateToNextContract starts')
+    const burgerButtonClass = await this.evaluateInWorker(
+      function getBurgerButtonClass(selector) {
+        return document
+          .querySelector(selector)
+          .closest('button')
+          .getAttribute('class')
+      },
+      [burgerButtonSVGSelector]
+    )
     await this.clickAndWait(
-      '#root > div > div > div > button',
+      `[class="${burgerButtonClass}"]`,
       'button[data-testid="account-switcher-button"]'
     )
     await this.runInWorker('clickAccountSwitcher')
@@ -8720,19 +8786,30 @@ class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTE
     )
     if (lastContract) {
       await this.runInWorker('selectClosestToDateContract')
-      await this.waitForElementInWorker('div[data-testid="userInfoSection"]')
+      await this.waitForElementInWorker(
+        `button[class="${this.store.profilButtonClass}"]`
+      )
       return true
     }
-    await this.waitForElementInWorker('div[data-testid="userInfoSection"]')
-    const contractInfos = this.store.contractsInfos
-    await this.runInWorker('getContractInfos', contractInfos)
+    await Promise.all([
+      this.waitForElementInWorker(burgerButtonSVGSelector),
+      this.waitForElementInWorker('div[direction="row"]  span')
+    ])
+    this.store.profilButtonClass = await this.runInWorker(
+      'getProfilButtonClass'
+    )
+    await this.clickAndWait(
+      `button[class="${this.store.profilButtonClass}"]`,
+      'span[id]'
+    )
+    await this.runInWorker('getContractInfos')
   }
 
   async waitFor2FA() {
     this.log('info', 'waitFor2FA starts')
     await (0,p_wait_for__WEBPACK_IMPORTED_MODULE_2__["default"])(
       () => {
-        if (document.querySelector('div[data-testid="userInfoSection"]')) {
+        if (document.querySelector(burgerButtonSVGSelector)) {
           this.log('info', '2FA OK - Land on home')
           return true
         } else if (
@@ -8793,24 +8870,55 @@ class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTE
     return numberOfContracts
   }
 
-  async getContractInfos(contractsInfos) {
+  async getContractInfos() {
     this.log('info', '📍️ getContractInfos starts')
     const allContractsInfos = []
-    if (contractsInfos) {
-      for (const contractInfos of contractsInfos)
-        allContractsInfos.push(contractInfos)
-    }
-    const startDate = document
-      .querySelector('div[data-testid="dashboardBulletsContractStart"]')
-      .textContent.split('contrat')[1]
-      .replace(/\//g, '-')
-    const endDate = document
-      .querySelector('div[data-testid="dashboardBulletsContractEnd"]')
-      ?.textContent.split('contrat')[1]
-      .replace(/\//g, '-')
-    const type = document
-      .querySelector('div[data-testid="dashboardBulletsContractType"]')
-      .textContent.split('contrat')[1]
+    const spansWithId = document.querySelectorAll('span[id]')
+    const spansTextcontent = []
+    await (0,p_wait_for__WEBPACK_IMPORTED_MODULE_2__["default"])(
+      () => {
+        spansWithId.forEach(span => {
+          const siblings = Array.from(span.parentNode.children)
+          siblings.forEach(sibling => {
+            const divsWithDirectionRow = Array.from(
+              sibling.querySelectorAll('div[direction="row"]')
+            )
+            divsWithDirectionRow.forEach(element => {
+              spansTextcontent.push(element.textContent)
+            })
+          })
+        })
+        // We could find at the moment 4 elements maximum.
+        // As we just need the first two, if the length is equal 2 we carry on
+        if (spansTextcontent.length >= 2) {
+          return true
+        } else {
+          this.log('info', 'ContractInfos are not fully loaded, waiting ...')
+          // If infos are not fully loaded, we're emptying the array
+          // so it does not accumulate any loaded info on every lap
+          spansTextcontent.length = 0
+          return false
+        }
+      },
+      {
+        interval: 1000,
+        timeout: 30 * 1000
+      }
+    )
+    let startDate
+    let endDate
+    let type
+    spansTextcontent.forEach(string => {
+      if (string.includes('embauche')) {
+        startDate = string.split('embauche')[1].replace(/\//g, '-')
+      } else if (string.includes('fin')) {
+        endDate = string.split('fin')[1].replace(/\//g, '-')
+      } else if (string.includes('Type')) {
+        type = string.split('contrat')[1]
+      } else {
+        this.log('info', 'includes nothing')
+      }
+    })
     const contract = {
       startDate,
       type
@@ -9120,6 +9228,7 @@ connector
     additionalExposedMethodsNames: [
       'waitFor2FA',
       'selectClosestToDateContract',
+      'getProfilButtonClass',
       'getIdentity',
       'checkInterception',
       'getBills',
@@ -9135,6 +9244,13 @@ connector
   .catch(err => {
     log.warn(err)
   })
+
+function getDateDistanceInDays(dateString) {
+  const distanceMs = Date.now() - new Date(dateString).getTime()
+  const days = 1000 * 60 * 60 * 24
+
+  return Math.floor(distanceMs / days)
+}
 
 })();
 
