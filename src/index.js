@@ -5,6 +5,8 @@ import { format } from 'date-fns'
 const log = Minilog('ContentScript')
 Minilog.enable('payfitCCC')
 
+let FORCE_FETCH_ALL = false
+
 const baseUrl = 'https://app.payfit.com/'
 const personalInfosUrl = `${baseUrl}settings/profile`
 
@@ -340,6 +342,22 @@ class PayfitContentScript extends ContentScript {
   async fetch(context) {
     try {
       this.log('info', '🤖 fetch')
+      const { trigger } = context
+      // force fetch all data (the long way) when last trigger execution is older than 30 days
+      // or when the last job was an error
+      const isLastJobError =
+        trigger.current_state?.last_failure >
+        trigger.current_state?.last_success
+      const hasLastExecution = Boolean(trigger.current_state?.last_execution)
+      const distanceInDays = getDateDistanceInDays(
+        trigger.current_state?.last_execution
+      )
+      if (distanceInDays >= 30 || !hasLastExecution || isLastJobError) {
+        this.log('debug', `isLastJobError: ${isLastJobError}`)
+        this.log('debug', `distanceInDays: ${distanceInDays}`)
+        this.log('debug', `hasLastExecution: ${hasLastExecution}`)
+        FORCE_FETCH_ALL = true
+      }
       if (this.store && this.store.userCredentials) {
         this.log('info', 'Saving credentials ...')
         await this.saveCredentials(this.store.userCredentials)
@@ -348,9 +366,12 @@ class PayfitContentScript extends ContentScript {
         this.log('info', 'Saving identity ...')
         await this.saveIdentity({ contact: this.store.userIdentity })
       }
-      const foundNumberOfContracts = this.store.numberOfContracts
-        ? this.store.numberOfContracts
-        : 1
+      let foundNumberOfContracts
+      if (!this.store.numberOfContracts || !FORCE_FETCH_ALL) {
+        foundNumberOfContracts = 1
+      } else {
+        foundNumberOfContracts = this.store.numberOfContracts
+      }
       for (let i = 0; i < foundNumberOfContracts; i++) {
         this.log(
           'info',
@@ -359,7 +380,8 @@ class PayfitContentScript extends ContentScript {
         await this.fetchPayslips({
           context,
           fetchedDates: this.store.fetchedDates,
-          i
+          i,
+          FORCE_FETCH_ALL
         })
         if (foundNumberOfContracts > 1) {
           await this.navigateToNextContract()
@@ -381,11 +403,12 @@ class PayfitContentScript extends ContentScript {
     }
   }
 
-  async fetchPayslips({ context, fetchedDatesArray, i }) {
+  async fetchPayslips({ context, fetchedDatesArray, i, FORCE_FETCH_ALL }) {
     this.log('info', '📍️ fetchPayslips starts')
     await this.navigateToPayrollsPage()
     await this.runInWorkerUntilTrue({
-      method: 'getPayslipsInfos'
+      method: 'getPayslipsInfos',
+      args: [FORCE_FETCH_ALL]
     })
     const alreadyFetchedIds = []
     const allPayslipsIds = this.store.contractBillsInfos.payslipsIds
@@ -456,7 +479,7 @@ class PayfitContentScript extends ContentScript {
     return payslipsIds
   }
 
-  async getPayslipsInfos() {
+  async getPayslipsInfos(FORCE_FETCH_ALL) {
     this.log('info', '📍️ getPayslipsInfos starts')
     const data = {
       loopNumber: 0,
@@ -464,12 +487,23 @@ class PayfitContentScript extends ContentScript {
       foundElementsLength: 0,
       payslipsIds: []
     }
+    const fetchAll = FORCE_FETCH_ALL
     await waitFor(
       () => {
+        let numberToFetch
         const billsElements = document.querySelectorAll(
           'div[data-testid*="payslip-"] > div'
         )
-        for (let i = 0; i < billsElements.length; i++) {
+        if (!fetchAll) {
+          // If we don't need to fetch everything, we're limiting the fetching at 3 payslips
+          // Ensuring enough cover for in-between situtations such has lastExecution at the end of a month with no bill to fetch yet for this month
+          this.log('info', 'fetchAll is false, fetching the last 3 payslips')
+          numberToFetch = 3
+        } else {
+          this.log('info', 'Fetching all payslips')
+          numberToFetch = billsElements.length
+        }
+        for (let i = 0; i < numberToFetch; i++) {
           const elementId =
             billsElements[i].parentNode.getAttribute('data-testid')
           if (data.payslipsIds.includes(elementId)) {
@@ -1039,3 +1073,10 @@ connector
   .catch(err => {
     log.warn(err)
   })
+
+function getDateDistanceInDays(dateString) {
+  const distanceMs = Date.now() - new Date(dateString).getTime()
+  const days = 1000 * 60 * 60 * 24
+
+  return Math.floor(distanceMs / days)
+}
