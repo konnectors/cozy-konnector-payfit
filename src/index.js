@@ -772,6 +772,14 @@ class PayfitContentScript extends ContentScript {
         }
         if (args.type === 'bills') {
           this.log('info', `📍️ checkInterception for ${args.number} bills`)
+          this.log(
+            'info',
+            `🏵️ checkInterceptions - values to check : ${JSON.stringify({
+              billsLength: bills.length,
+              billsHrefsLength: billsHrefs.length,
+              args
+            })}`
+          )
           if (bills.length > 0 && billsHrefs.length === args.number) {
             this.log('info', 'bills interception OK')
             return true
