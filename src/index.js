@@ -798,12 +798,20 @@ class PayfitContentScript extends ContentScript {
       },
       address: [],
       email: [],
-      phone: [
-        {
-          number: infos.phoneNumber,
-          type: this.determinePhoneType(infos.phoneNumber)
-        }
-      ]
+      phone: []
+    }
+    if (infos.phoneNumber) {
+      this.log('info', 'phoneNumber is defined, saving it')
+      userIdentity.phone.push({
+        number: infos.phoneNumber,
+        type: this.determinePhoneType(infos.phoneNumber)
+      })
+    } else {
+      this.log(
+        'info',
+        'phoneNumber is null, deleting phone entry from userIdentity'
+      )
+      delete userIdentity.phone
     }
     const foundAddress = this.getAddress(infos)
     for (const email of emails) {
