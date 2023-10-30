@@ -8404,10 +8404,10 @@ class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTE
           try {
             await this.autoLogin(credentials)
             this.log('info', 'autoLogin succesful')
-          } catch {
+          } catch (err) {
             this.log(
               'info',
-              'Something went wrong with autoLogin, letting user log in'
+              'Something went wrong with autoLogin: ' + err.message
             )
             await this.showLoginFormAndWaitForAuthentication()
           }
@@ -8521,7 +8521,7 @@ class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTE
       credentials.password
     )
     await this.runInWorker('click', passwordSubmitButtonSelector)
-    await this.Promise.race([
+    await Promise.race([
       this.waitForElementInWorker(burgerButtonSVGSelector),
       this.waitForElementInWorker('#code'),
       this.waitForElementInWorker('button[data-testid="accountButton"]')
@@ -9031,12 +9031,20 @@ class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTE
       },
       address: [],
       email: [],
-      phone: [
-        {
-          number: infos.phoneNumber,
-          type: this.determinePhoneType(infos.phoneNumber)
-        }
-      ]
+      phone: []
+    }
+    if (infos.phoneNumber) {
+      this.log('info', 'phoneNumber is defined, saving it')
+      userIdentity.phone.push({
+        number: infos.phoneNumber,
+        type: this.determinePhoneType(infos.phoneNumber)
+      })
+    } else {
+      this.log(
+        'info',
+        'phoneNumber is null, deleting phone entry from userIdentity'
+      )
+      delete userIdentity.phone
     }
     const foundAddress = this.getAddress(infos)
     for (const email of emails) {
