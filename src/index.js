@@ -2,6 +2,47 @@ import { ContentScript } from 'cozy-clisk/dist/contentscript'
 import Minilog from '@cozy/minilog'
 import waitFor from 'p-wait-for'
 import { format } from 'date-fns'
+import RequestInterceptor from './interceptor'
+import pTimeout from 'p-timeout'
+
+const interceptor = new RequestInterceptor([
+  {
+    label: 'accountList',
+    method: 'GET',
+    url: 'auth/auth0/accounts',
+    serialization: 'json'
+  },
+  {
+    label: 'personnalInformations',
+    method: 'GET',
+    url: 'https://api.payfit.com/hr/user-settings/personal-information',
+    serialization: 'json',
+    exact: true
+  },
+  {
+    label: 'userInfos',
+    method: 'POST',
+    url: 'https://api.payfit.com/hr/user/info',
+    serialization: 'json',
+    exact: true
+  },
+  {
+    label: 'userSettings',
+    method: 'GET',
+    url: 'https://api.payfit.com/hr/user-settings',
+    serialization: 'json',
+    exact: true
+  },
+  {
+    label: 'filesList',
+    method: 'POST',
+    url: 'https://api.payfit.com/files/files',
+    serialization: 'json',
+    exact: true
+  }
+])
+interceptor.init()
+
 const log = Minilog('ContentScript')
 Minilog.enable('payfitCCC')
 
@@ -10,86 +51,36 @@ let FORCE_FETCH_ALL = false
 const baseUrl = 'https://app.payfit.com/'
 const personalInfosUrl = `${baseUrl}settings/profile`
 
-let personalInfos = []
-let userSettings = []
-let bills = []
-let billsHrefs = []
-
-// We need two types of interceptions, the fetch and the Xhr as requests for personnal informations are done with fetch
-// but the payslips request is done with XMLHttpRequest
-
-const fetchOriginal = window.fetch
-window.fetch = async (...args) => {
-  const response = await fetchOriginal(...args)
-  if (
-    typeof args[0] === 'string' &&
-    args[0] === 'https://api.payfit.com/hr/user-settings/personal-information'
-  ) {
-    await response
-      .clone()
-      .json()
-      .then(body => {
-        personalInfos.push(body)
-        return response
-      })
-      .catch(err => {
-        // eslint-disable-next-line no-console
-        console.log(err)
-        return response
-      })
-  }
-  if (
-    typeof args[0] === 'string' &&
-    args[0] === 'https://api.payfit.com/hr/user-settings'
-  ) {
-    await response
-      .clone()
-      .json()
-      .then(body => {
-        userSettings.push(body)
-        return response
-      })
-      .catch(err => {
-        // eslint-disable-next-line no-console
-        console.log(err)
-        return response
-      })
-  }
-  return response
-}
-
-var openProxied = window.XMLHttpRequest.prototype.open
-window.XMLHttpRequest.prototype.open = function () {
-  var originalResponse = this
-  if (arguments[1] === 'https://api.payfit.com/files/files') {
-    originalResponse.addEventListener('readystatechange', function () {
-      if (originalResponse.readyState === 4) {
-        const jsonBills = JSON.parse(originalResponse.responseText)
-        bills.push(jsonBills)
-      }
-    })
-    return openProxied.apply(this, [].slice.call(arguments))
-  }
-  if (
-    typeof arguments[1] === 'string' &&
-    arguments[1].includes('/presigned-url?attachment=1')
-  ) {
-    originalResponse.addEventListener('readystatechange', function () {
-      if (originalResponse.readyState === 4) {
-        const jsonBillHref = JSON.parse(originalResponse.responseText).url
-        billsHrefs.push(jsonBillHref)
-      }
-    })
-    return openProxied.apply(this, [].slice.call(arguments))
-  } else {
-    return openProxied.apply(this, [].slice.call(arguments))
-  }
-}
-
 const burgerButtonSVGSelector =
   '[d="M2 15.5v2h20v-2H2zm0-5v2h20v-2H2zm0-5v2h20v-2H2z"]'
 
 class PayfitContentScript extends ContentScript {
+  async init(options) {
+    await super.init(options)
+    interceptor.on('response', response => {
+      this.bridge.emit('workerEvent', {
+        event: 'interceptedResponse',
+        payload: response
+      })
+    })
+  }
+  waitForInterception(label, options = {}) {
+    const timeout = options?.timeout ?? 30000
+    const interceptionPromise = new Promise(resolve => {
+      const listener = ({ event, payload }) => {
+        if (event === 'interceptedResponse' && payload.label === label) {
+          this.bridge.removeEventListener('workerEvent', listener)
+          resolve(payload)
+        }
+      }
+      this.bridge.addEventListener('workerEvent', listener)
+    })
+
+    return pTimeout(interceptionPromise, {
+      milliseconds: timeout,
+      message: `Timed out after waiting ${timeout}ms for interception of ${label}`
+    })
+  }
   addSubmitButtonListener() {
     const formElement = document.querySelector('form')
     const passwordButton = document.querySelector('._button-login-password')
@@ -546,8 +537,8 @@ class PayfitContentScript extends ContentScript {
 
   emptyInterceptionsArrays() {
     this.log('info', '📍️ emptyInterceptionsArrays starts')
-    bills.length = 0
-    billsHrefs.length = 0
+    interceptor.bills.length = 0
+    interceptor.billsHrefs.length = 0
   }
 
   determineSubPath(fetchedDatesArray, i) {
@@ -764,7 +755,10 @@ class PayfitContentScript extends ContentScript {
     await waitFor(
       () => {
         if (args.type === 'identity') {
-          if (personalInfos.length > 0 && userSettings.length > 0) {
+          if (
+            interceptor.personalInfos.length > 0 &&
+            interceptor.userSettings.length > 0
+          ) {
             this.log('info', 'personalInfos interception OK')
             return true
           }
@@ -772,7 +766,10 @@ class PayfitContentScript extends ContentScript {
         }
         if (args.type === 'bills') {
           this.log('info', `📍️ checkInterception for ${args.number} bills`)
-          if (bills.length > 0 && billsHrefs.length === args.number) {
+          if (
+            interceptor.bills.length > 0 &&
+            interceptor.billsHrefs.length === args.number
+          ) {
             this.log('info', 'bills interception OK')
             return true
           }
@@ -789,8 +786,8 @@ class PayfitContentScript extends ContentScript {
 
   async getIdentity() {
     this.log('info', '📍️ getIdentity starts')
-    const infos = personalInfos[0].variables
-    const emails = userSettings[0].userEmails
+    const infos = interceptor.personalInfos[0].variables
+    const emails = interceptor.userSettings[0].userEmails
     const userIdentity = {
       name: {
         givenName: infos.firstName,
@@ -872,8 +869,10 @@ class PayfitContentScript extends ContentScript {
   async getBills() {
     this.log('info', '📍️ getBills starts')
     const billsToMatch = []
-    bills[0].forEach(bill => {
-      let matchId = billsHrefs.some(entry => entry.includes(bill.id))
+    interceptor.bills[0].forEach(bill => {
+      let matchId = interceptor.billsHrefs.some(entry =>
+        entry.includes(bill.id)
+      )
       if (matchId) {
         billsToMatch.push(bill)
       }
@@ -918,15 +917,15 @@ class PayfitContentScript extends ContentScript {
       computedBill.fileurl = `https://api.payfit.com/files${downloadHref}`
       computedBills.push(computedBill)
     }
-    billsHrefs.length = 0
+    interceptor.billsHrefs.length = 0
     return computedBills
   }
 
   async getDownloadHref(id) {
     this.log('info', '📍️ getDownloadHref starts')
-    for (let i = 0; i < billsHrefs.length; i++) {
-      if (billsHrefs[i].includes(id)) {
-        return billsHrefs[i]
+    for (let i = 0; i < interceptor.billsHrefs.length; i++) {
+      if (interceptor.billsHrefs[i].includes(id)) {
+        return interceptor.billsHrefs[i]
       }
     }
     throw new Error('No href found with this is, check the code')
