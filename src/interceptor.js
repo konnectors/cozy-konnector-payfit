@@ -1,3 +1,5 @@
+/* eslint no-console: off */
+
 import MicroEE from 'microee'
 import { blobToBase64 } from 'cozy-clisk/dist/contentscript/utils'
 
