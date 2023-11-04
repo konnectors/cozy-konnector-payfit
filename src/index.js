@@ -1,9 +1,11 @@
 import { ContentScript } from 'cozy-clisk/dist/contentscript'
+import { blobToBase64 } from 'cozy-clisk/dist/contentscript/utils'
 import Minilog from '@cozy/minilog'
 import waitFor from 'p-wait-for'
 import { format } from 'date-fns'
 import RequestInterceptor from './interceptor'
 import pTimeout from 'p-timeout'
+import ky from 'ky/umd'
 
 const interceptor = new RequestInterceptor([
   {
@@ -49,6 +51,7 @@ Minilog.enable('payfitCCC')
 let FORCE_FETCH_ALL = false
 
 const baseUrl = 'https://app.payfit.com/'
+const payslipsUrl = `${baseUrl}payslips/`
 const personalInfosUrl = `${baseUrl}settings/profile`
 
 const burgerButtonSVGSelector =
@@ -145,45 +148,40 @@ class PayfitContentScript extends ContentScript {
   }
 
   async ensureAuthenticated({ account }) {
-    try {
-      this.log('info', '🤖 ensureAuthenticated')
-      this.bridge.addEventListener('workerEvent', this.onWorkerEvent.bind(this))
-      if (!account) {
-        await this.ensureNotAuthenticated()
-      }
-      if (!(await this.isElementInWorker('#username'))) {
-        await this.navigateToLoginForm()
-      }
-      const authenticated = await this.runInWorker('checkAuthenticated')
-      if (!authenticated) {
-        this.log('info', 'Not authenticated')
-        const credentials = await this.getCredentials()
-        if (credentials) {
-          try {
-            await this.autoLogin(credentials)
-            this.log('info', 'autoLogin succesful')
-          } catch (err) {
-            this.log(
-              'info',
-              'Something went wrong with autoLogin: ' + err.message
-            )
-            await this.showLoginFormAndWaitForAuthentication()
-          }
-        } else {
+    this.log('info', '🤖 ensureAuthenticated')
+    this.bridge.addEventListener('workerEvent', this.onWorkerEvent.bind(this))
+    if (!account) {
+      await this.ensureNotAuthenticated()
+    }
+    if (!(await this.isElementInWorker('#username'))) {
+      await this.navigateToLoginForm()
+    }
+    const authenticated = await this.runInWorker('checkAuthenticated')
+    if (!authenticated) {
+      this.log('info', 'Not authenticated')
+      const credentials = await this.getCredentials()
+      if (credentials) {
+        try {
+          await this.autoLogin(credentials)
+          this.log('info', 'autoLogin succesful')
+        } catch (err) {
+          this.log(
+            'info',
+            'Something went wrong with autoLogin: ' + err.message
+          )
           await this.showLoginFormAndWaitForAuthentication()
         }
+      } else {
+        await this.showLoginFormAndWaitForAuthentication()
       }
-      if (await this.isElementInWorker('#code')) {
-        this.log('info', 'Waiting for 2FA ...')
-        this.unblockWorkerInteractions()
-        await this.show2FAFormAndWaitForInput()
-      }
-      this.unblockWorkerInteractions()
-      return true
-    } catch (err) {
-      this.log('error', `❌ ensureAuthenticated error message : ${err.message}`)
-      throw err
     }
+    if (await this.isElementInWorker('#code')) {
+      this.log('info', 'Waiting for 2FA ...')
+      this.unblockWorkerInteractions()
+      await this.show2FAFormAndWaitForInput()
+    }
+    this.unblockWorkerInteractions()
+    return true
   }
 
   async ensureNotAuthenticated() {
@@ -192,37 +190,15 @@ class PayfitContentScript extends ContentScript {
     const authenticated = await this.runInWorker('checkAuthenticated')
     if (!authenticated) {
       return true
-    } else {
-      this.log('info', 'Already logged in, logging out')
-      if (await this.isElementInWorker('button[data-testid="accountButton"]')) {
-        this.log(
-          'info',
-          'ensureNotAuthenticated - Account selection page detected, navigating to any contract to access logout button'
-        )
-        await this.clickAndWait(
-          'button[data-testid="accountButton"]',
-          burgerButtonSVGSelector
-        )
-      }
-      await this.waitForElementInWorker(burgerButtonSVGSelector)
-      const burgerButtonClass = await this.evaluateInWorker(
-        function getBurgerButtonClass(selector) {
-          return document
-            .querySelector(selector)
-            .closest('button')
-            .getAttribute('class')
-        },
-        [burgerButtonSVGSelector]
-      )
-      await this.clickAndWait(
-        `[class="${burgerButtonClass}"]`,
-        'button[data-testid="account-switcher-button"]'
-      )
-      await this.runInWorker('clickAccountSwitcher')
-      await this.runInWorker('selectMenuItem', 'logout')
-      await this.waitForElementInWorker('#username')
-      this.log('info', 'Logout OK')
     }
+
+    this.log('info', 'Already logged in, logging out')
+    await this.showAccountSwitchPage()
+    await this.runInWorker('click', 'button > strong', {
+      includesText: 'Déconnexion'
+    })
+    await this.waitForElementInWorker('#username')
+    this.log('info', 'Logout OK')
   }
 
   async checkAuthenticated() {
@@ -286,343 +262,184 @@ class PayfitContentScript extends ContentScript {
     ])
   }
 
+  async showAccountSwitchPage() {
+    // force the account choice page
+    await this.evaluateInWorker(() => window.localStorage.clear())
+    await this.goto(baseUrl)
+    await this.evaluateInWorker(() => window.location.reload()) // refresh the current page after localStorage update
+    const accountList = await this.waitForInterception('accountList')
+    return accountList
+  }
+
   async getUserDataFromWebsite() {
-    try {
-      this.log('info', '🤖 getUserDataFromWebsite')
-      if (await this.isElementInWorker('button[data-testid="accountButton"]')) {
-        await this.runInWorker('selectClosestToDateContract')
-        this.log('info', `Found ${this.store.numberOfContracts} contracts`)
-      }
-      await Promise.all([
-        this.waitForElementInWorker(burgerButtonSVGSelector),
-        this.waitForElementInWorker('div[direction="row"]  span')
-      ])
-      this.store.profilButtonClass = await this.runInWorker(
-        'getProfilButtonClass'
-      )
-      await this.clickAndWait(
-        `button[class="${this.store.profilButtonClass}"]`,
-        'span[id]'
-      )
-      await this.runInWorker('getContractInfos')
-      await this.goto(personalInfosUrl)
-      await this.waitForElementInWorker(
-        'button[data-testid="changePersonalInformationButton"]'
-      )
-      await this.runInWorkerUntilTrue({
-        method: 'checkInterception',
-        args: [{ type: 'identity' }]
-      })
-      await this.runInWorker('getIdentity')
-      if (this.store.userIdentity.email[0]?.address) {
-        return {
-          sourceAccountIdentifier: this.store.userIdentity.email[0].address
-        }
-      } else {
-        throw new Error('No email found for identity')
-      }
-    } catch (err) {
-      this.log(
-        'error',
-        `❌ getUserDataFromWebsite error message : ${err.message}`
-      )
-      throw err
+    this.log('info', '🤖 getUserDataFromWebsite')
+
+    const accountList = await this.showAccountSwitchPage()
+    this.store.accountList = accountList.response
+
+    // find the user email in store or saved credentials
+    const sourceAccountIdentifier =
+      this.store?.userCredentials?.email || (await this.getCredentials())?.email
+    if (!sourceAccountIdentifier) {
+      throw new Error('Could not find any sourceAccountIdentifier')
+    }
+
+    return {
+      sourceAccountIdentifier
     }
   }
 
   async fetch(context) {
-    try {
-      this.log('info', '🤖 fetch')
-      const { trigger } = context
-      // force fetch all data (the long way) when last trigger execution is older than 30 days
-      // or when the last job was an error
-      const isLastJobError =
-        trigger.current_state?.last_failure >
-        trigger.current_state?.last_success
-      const hasLastExecution = Boolean(trigger.current_state?.last_execution)
-      const distanceInDays = getDateDistanceInDays(
-        trigger.current_state?.last_execution
+    this.log('info', '🤖 fetch')
+    if (this.store && this.store.userCredentials) {
+      this.log('info', 'Saving credentials ...')
+      await this.saveCredentials(this.store.userCredentials)
+    }
+
+    const { trigger } = context
+    // force fetch all data (the long way) when last trigger execution is older than 30 days
+    // or when the last job was an error
+    const isLastJobError =
+      trigger.current_state?.last_failure > trigger.current_state?.last_success
+    const hasLastExecution = Boolean(trigger.current_state?.last_execution)
+    const distanceInDays = getDateDistanceInDays(
+      trigger.current_state?.last_execution
+    )
+    if (distanceInDays >= 30 || !hasLastExecution || isLastJobError) {
+      this.log('info', `isLastJobError: ${isLastJobError}`)
+      this.log('info', `distanceInDays: ${distanceInDays}`)
+      this.log('info', `hasLastExecution: ${hasLastExecution}`)
+      FORCE_FETCH_ALL = true
+    }
+    this.log('info', `FORCE_FETCH_ALL: ${FORCE_FETCH_ALL}`)
+
+    // sort accountList to have the latest contract first
+    const getContractStart = account =>
+      account.companyInfo.loginDescription
+        .split(':')
+        .pop()
+        .trim()
+        .split('/')
+        .reverse()
+        .join('/')
+    this.store.accountList.sort(
+      (a, b) => (getContractStart(a) < getContractStart(b) ? 1 : -1) // with fetch latest contract first
+    )
+
+    if (!FORCE_FETCH_ALL) {
+      // only fetch the last contract in date
+      this.store.accountList = this.store.accountList.slice(0, 1)
+    }
+    for (const account of this.store.accountList) {
+      // select this account as the current account
+      await this.evaluateInWorker(
+        account => window.localStorage.setItem('accountChoice', account),
+        JSON.stringify(account)
       )
-      if (distanceInDays >= 30 || !hasLastExecution || isLastJobError) {
-        this.log('debug', `isLastJobError: ${isLastJobError}`)
-        this.log('debug', `distanceInDays: ${distanceInDays}`)
-        this.log('debug', `hasLastExecution: ${hasLastExecution}`)
-        FORCE_FETCH_ALL = true
-      }
-      if (this.store && this.store.userCredentials) {
-        this.log('info', 'Saving credentials ...')
-        await this.saveCredentials(this.store.userCredentials)
-      }
-      if (this.store.userIdentity) {
-        this.log('info', 'Saving identity ...')
-        await this.saveIdentity({ contact: this.store.userIdentity })
-      }
-      let foundNumberOfContracts
-      if (!this.store.numberOfContracts || !FORCE_FETCH_ALL) {
-        foundNumberOfContracts = 1
-      } else {
-        foundNumberOfContracts = this.store.numberOfContracts
-      }
-      for (let i = 0; i < foundNumberOfContracts; i++) {
-        this.log(
-          'info',
-          `Fetching ${i + 1}/${foundNumberOfContracts} contract ...`
-        )
-        await this.fetchPayslips({
-          context,
-          fetchedDates: this.store.fetchedDates,
-          i,
-          FORCE_FETCH_ALL
-        })
-        if (foundNumberOfContracts > 1) {
-          await this.navigateToNextContract()
-        }
-      }
-    } catch (err) {
-      this.log('error', `❌ fetch error message : ${err.message}`)
-      throw err
-    }
-  }
-
-  async getProfilButtonClass() {
-    this.log('info', '📍️ getProfilButtonClass starts')
-    const elements = document.querySelectorAll('div[direction="row"]  span')
-    for (const element of elements) {
-      if (element.textContent.match(/[A-Z]{2}/g)) {
-        return element.closest('button').getAttribute('class')
-      }
-    }
-  }
-
-  async fetchPayslips({ context, fetchedDatesArray, i, FORCE_FETCH_ALL }) {
-    this.log('info', '📍️ fetchPayslips starts')
-    await this.navigateToPayrollsPage()
-    await this.runInWorkerUntilTrue({
-      method: 'getPayslipsInfos',
-      args: [FORCE_FETCH_ALL]
-    })
-    const alreadyFetchedIds = []
-    const allPayslipsIds = this.store.contractBillsInfos.payslipsIds
-    // Limit here is needed because of download urls' expirations.
-    // We dispose of a 1 min countdown to use these urls after clicking.
-    // It's ensuring a good execution for slow connections too.
-    const limit = 10
-    const totalIdsLength = allPayslipsIds.length
-    this.log('info', `totalIdsLength : ${totalIdsLength}`)
-    for (let j = totalIdsLength; j > 0; j -= limit) {
-      const group = Array.from(allPayslipsIds).slice(Math.max(j - limit, 0), j)
-      const fetchedIds = await this.runInWorker('showAndFetchPayslipsBatch', {
-        limit,
-        group
-      })
-      alreadyFetchedIds.push(...fetchedIds)
-      await this.runInWorkerUntilTrue({
-        method: 'checkInterception',
-        args: [{ type: 'bills', number: fetchedIds.length }]
-      })
-      const billsBatch = await this.runInWorker('getBills')
-      let subPath = await this.determineSubPath(fetchedDatesArray, i)
-      await this.saveFiles(billsBatch, {
+      await this.goto(baseUrl)
+      const userInfos = await this.waitForInterception('userInfos')
+      await this.fetchPayslips({
         context,
-        fileIdAttributes: ['vendorId'],
-        contentType: 'application/pdf',
-        qualificationLabel: 'pay_sheet',
-        subPath
+        account,
+        userInfos,
+        FORCE_FETCH_ALL
       })
     }
-    await this.runInWorker('emptyInterceptionsArrays')
-  }
 
-  async showAndFetchPayslipsBatch(options) {
-    this.log('info', '📍️ showAndFetchPayslipsBatch starts')
-    const payslipsIds = []
-    await waitFor(
-      () => {
-        const foundElements = document.querySelectorAll(
-          'div[data-testid*="payslip-"] > div'
-        )
-        const foundIds = Array.from(foundElements).map(element =>
-          element.parentNode.getAttribute('data-testid')
-        )
-        if (foundIds.some(entry => entry.includes(options.group[0]))) {
-          this.log('info', 'found first id in html')
-          return true
-        } else {
-          this.log('info', 'found nothing, scrolling')
-          // Here we are force to scroll because this list creates and deletes elements according to scrolling position.
-          // To ensure we scroll over every single payslip, we're comparing the elements' ids in view with the ones we're looking for.
-          const beforeLast = document.querySelector(
-            '.ReactVirtualized__Grid__innerScrollContainer > div:nth-last-child(5)'
-          )
-          beforeLast.scrollIntoView({ behavior: 'instant', block: 'end' })
-          return false
-        }
-      },
-      {
-        interval: 1000,
-        timeout: 30 * 1000
-      }
-    )
-    const neededPayslips = this.determinePayslipsToFetch(options.group)
-    const clickedPayslips = this.clickNeededPayslips(neededPayslips)
-    payslipsIds.push(...clickedPayslips)
-    this.log('info', 'No need to scroll yet')
-    return payslipsIds
-  }
-
-  async getPayslipsInfos(FORCE_FETCH_ALL) {
-    this.log('info', '📍️ getPayslipsInfos starts')
-    const data = {
-      loopNumber: 0,
-      numberOfClickedElements: 0,
-      foundElementsLength: 0,
-      payslipsIds: []
+    if (FORCE_FETCH_ALL) {
+      // save identity only when FORCE_FETCH_ALL === true to favor fast execution as much as possible
+      const [userSettings, personnalInformations] = await Promise.all([
+        this.waitForInterception('userSettings'),
+        this.waitForInterception('personnalInformations'),
+        this.goto(personalInfosUrl)
+      ])
+      const parsedIdentity = this.parseIdentity({
+        userSettings,
+        personnalInformations
+      })
+      await this.saveIdentity({ contact: parsedIdentity })
     }
-    const fetchAll = FORCE_FETCH_ALL
-    await waitFor(
-      () => {
-        let numberToFetch
-        const billsElements = document.querySelectorAll(
-          'div[data-testid*="payslip-"] > div'
-        )
-        if (!fetchAll) {
-          // If we don't need to fetch everything, we're limiting the fetching at 3 payslips
-          // Ensuring enough cover for in-between situtations such has lastExecution at the end of a month with no bill to fetch yet for this month
-          this.log('info', 'fetchAll is false, fetching the last 3 payslips')
-          numberToFetch = 3
-        } else {
-          this.log('info', 'Fetching all payslips')
-          numberToFetch = billsElements.length
+  }
+
+  async downloadFileInWorker(entry) {
+    // overload ContentScript.downloadFileInWorker to be able to get the token and to run double
+    // fetch request necessary to finally get the file
+    this.log('debug', 'downloading file in worker')
+
+    const token = window.payFitKonnectorToken
+
+    const nextUrlDocument = await ky
+      .get(entry.fileurl, {
+        headers: {
+          Authorization: 'Bearer ' + token
         }
-        for (let i = 0; i < numberToFetch; i++) {
-          const elementId =
-            billsElements[i].parentNode.getAttribute('data-testid')
-          if (data.payslipsIds.includes(elementId)) {
-            data.loopNumber++
-            continue
-          }
-          data.payslipsIds.push(elementId)
-          data.loopNumber++
+      })
+      .json()
+
+    const blob = await ky
+      .get('https://api.payfit.com/files' + nextUrlDocument.url, {
+        headers: {
+          Authorization: 'Bearer ' + token
         }
-        data.foundElementsLength =
-          data.foundElementsLength + billsElements.length
-        let isRealLast = false
-        const maxHeight = parseInt(
-          document.querySelector(
-            '.ReactVirtualized__Grid__innerScrollContainer'
-          ).style.maxHeight,
-          10
-        )
-        const lastElem = document.querySelector(
-          '.ReactVirtualized__Grid__innerScrollContainer > div:last-child'
-        )
-        const lastElemBottom =
-          parseInt(lastElem.style.top, 10) + parseInt(lastElem.style.height, 10)
-        lastElem.scrollIntoView({ behavior: 'instant', block: 'start' })
-        isRealLast = lastElemBottom === maxHeight
-        if (isRealLast) {
-          return true
-        } else {
-          return false
-        }
-      },
-      {
-        interval: 1000,
-        timeout: 30 * 1000
-      }
-    )
-    await this.sendToPilot({ contractBillsInfos: data })
-    return true
+      })
+      .blob()
+    entry.dataUri = await blobToBase64(blob)
+    return entry.dataUri
   }
 
-  emptyInterceptionsArrays() {
-    this.log('info', '📍️ emptyInterceptionsArrays starts')
-    interceptor.bills.length = 0
-    interceptor.billsHrefs.length = 0
-  }
-
-  determineSubPath(fetchedDatesArray, i) {
-    this.log('info', '📍️ determineSubPath starts')
-    let subPath = `${this.store.companyName} - ${this.store.contractsInfos[0].type}`
-    if (!fetchedDatesArray) {
-      subPath = `${subPath} - ${this.store.contractsInfos[0].startDate}`
-    } else {
-      subPath = `${subPath} - ${fetchedDatesArray[i]}`
-    }
-    if (this.store.contractsInfos[0].endDate) {
-      subPath = `${subPath} → ${this.store.contractsInfos[0].endDate}`
-    }
-    return subPath
-  }
-
-  async navigateToPayrollsPage() {
-    this.log('info', '📍️ navigateToPayrollsPage starts')
-    await this.waitForElementInWorker(burgerButtonSVGSelector)
-    const burgerButtonClass = await this.evaluateInWorker(
-      function getBurgerButtonClass(selector) {
-        return document
-          .querySelector(selector)
-          .closest('button')
-          .getAttribute('class')
-      },
-      [burgerButtonSVGSelector]
-    )
-    await this.clickAndWait(
-      `[class="${burgerButtonClass}"]`,
-      'a[href="/payslips"]'
-    )
-    await this.clickAndWait(
-      'a[href="/payslips"]',
-      'div[data-testid*="payslip-"]'
-    )
-    this.log('info', '📍️ navigateToPayrollsPage ends')
-  }
-
-  async navigateToNextContract() {
-    this.log('info', '📍️ navigateToNextContract starts')
-    const burgerButtonClass = await this.evaluateInWorker(
-      function getBurgerButtonClass(selector) {
-        return document
-          .querySelector(selector)
-          .closest('button')
-          .getAttribute('class')
-      },
-      [burgerButtonSVGSelector]
-    )
-    await this.clickAndWait(
-      `[class="${burgerButtonClass}"]`,
-      'button[data-testid="account-switcher-button"]'
-    )
-    await this.runInWorker('clickAccountSwitcher')
-    await this.waitForElementInWorker('div[role="menuitem"]')
-    await this.runInWorker('selectMenuItem', 'changeAccount')
-    await this.waitForElementInWorker('button[data-testid="accountButton"]')
-    const datesArray = this.store.fetchedDates
-    const numberOfContracts = this.store.numberOfContracts
-    const lastContract = await this.runInWorker(
-      'determineContractToSelect',
-      datesArray,
-      numberOfContracts
-    )
-    if (lastContract) {
-      await this.runInWorker('selectClosestToDateContract')
-      await this.waitForElementInWorker(
-        `button[class="${this.store.profilButtonClass}"]`
-      )
-      return true
-    }
-    await Promise.all([
-      this.waitForElementInWorker(burgerButtonSVGSelector),
-      this.waitForElementInWorker('div[direction="row"]  span')
+  async fetchPayslips({ context, account, userInfos, FORCE_FETCH_ALL }) {
+    this.log('info', '📍️ fetchPayslips starts')
+    const [filesList] = await Promise.all([
+      this.waitForInterception('filesList'),
+      this.goto(payslipsUrl)
     ])
-    this.store.profilButtonClass = await this.runInWorker(
-      'getProfilButtonClass'
+    const token = filesList.requestHeaders.Authorization.split(' ').pop()
+    await this.evaluateInWorker(
+      token => (window.payFitKonnectorToken = token),
+      token
     )
-    await this.clickAndWait(
-      `button[class="${this.store.profilButtonClass}"]`,
-      'span[id]'
-    )
-    await this.runInWorker('getContractInfos')
+    const companyName = account.companyInfo.name
+    const fileDocuments = filesList.response
+      .sort((a, b) => (a.absoluteMonth < b.absoluteMonth ? 1 : -1)) // will fetch newest payslips first
+      .map(fileDocument => {
+        const vendorId = fileDocument.id
+        const date = getDateFromAbsoluteMonth(fileDocument.absoluteMonth)
+        const filename = `${companyName}_${format(
+          date,
+          'yyyy_MM'
+        )}_${vendorId.slice(-5)}.pdf`
+        return {
+          date: format(date, 'yyyy-MM-dd'),
+          vendorId: fileDocument.id,
+          vendorRef: vendorId,
+          companyName,
+          filename,
+          recurrence: 'monthly',
+          fileurl: `https://api.payfit.com/files/file/${fileDocument.id}/presigned-url?attachment=1`,
+          fileAttributes: {
+            metadata: {
+              contentAuthor: 'payfit.com',
+              issueDate: new Date(fileDocument.createdAt),
+              carbonCopy: true
+            }
+          }
+        }
+      })
+
+    const subPath = `${companyName} - ${
+      userInfos.response.contractName
+    } - ${userInfos.response.contractStartDate.split('/').reverse().join('-')}`
+    // only select the 3 last documents when FORCE_FETCH_ALL is false
+    const selectedDocuments = FORCE_FETCH_ALL
+      ? fileDocuments
+      : fileDocuments.slice(0, 3)
+    await this.saveFiles(selectedDocuments, {
+      context,
+      fileIdAttributes: ['vendorId'],
+      contentType: 'application/pdf',
+      qualificationLabel: 'pay_sheet',
+      subPath
+    })
   }
 
   async waitFor2FA() {
@@ -648,147 +465,11 @@ class PayfitContentScript extends ContentScript {
     return true
   }
 
-  async selectClosestToDateContract() {
-    this.log('info', 'selectClosestToDateContract starts')
-    const numberOfContracts = this.getNumberOfContracts()
-    this.log('info', 'Sending number of contracts to Pilot')
-    const contractElements = document.querySelectorAll(
-      'button[data-testid="accountButton"]'
-    )
-    const closestDate = await this.determineClosestToDate(contractElements)
-    await this.sendToPilot({
-      numberOfContracts,
-      fetchedDates: [closestDate.date]
-    })
-    contractElements[closestDate.index].click()
-  }
-
-  determineClosestToDate(elements) {
-    this.log('info', '📍️ determineClosestToDate starts')
-    const foundDates = []
-    for (let i = 0; i < elements.length; i++) {
-      const foundDate = this.getContractDate(elements[i])
-      foundDates.push(foundDate)
-    }
-    const actualDate = new Date()
-    const diffMin = foundDates.reduce(
-      (min, date, index) => {
-        const dateCourante = new Date(date)
-        const diff = Math.abs(dateCourante - actualDate)
-        return diff < min.diff ? { diff, index, date } : min
-      },
-      { diff: Infinity, index: -1 }
-    )
-    return diffMin
-  }
-
-  getNumberOfContracts() {
-    this.log('info', 'getNumberOfContracts starts')
-    const numberOfContracts = document.querySelectorAll(
-      'button[data-testid="accountButton"]'
-    ).length
-    return numberOfContracts
-  }
-
-  async getContractInfos() {
-    this.log('info', '📍️ getContractInfos starts')
-    const allContractsInfos = []
-    const spansWithId = document.querySelectorAll('span[id]')
-    const spansTextcontent = []
-    await waitFor(
-      () => {
-        spansWithId.forEach(span => {
-          const siblings = Array.from(span.parentNode.children)
-          siblings.forEach(sibling => {
-            const divsWithDirectionRow = Array.from(
-              sibling.querySelectorAll('div[direction="row"]')
-            )
-            divsWithDirectionRow.forEach(element => {
-              spansTextcontent.push(element.textContent)
-            })
-          })
-        })
-        // We could find at the moment 4 elements maximum.
-        // As we just need the first two, if the length is equal 2 we carry on
-        if (spansTextcontent.length >= 2) {
-          return true
-        } else {
-          this.log('info', 'ContractInfos are not fully loaded, waiting ...')
-          // If infos are not fully loaded, we're emptying the array
-          // so it does not accumulate any loaded info on every lap
-          spansTextcontent.length = 0
-          return false
-        }
-      },
-      {
-        interval: 1000,
-        timeout: 30 * 1000
-      }
-    )
-    let startDate
-    let endDate
-    let type
-    spansTextcontent.forEach(string => {
-      if (string.includes('embauche')) {
-        startDate = string.split('embauche')[1].replace(/\//g, '-')
-      } else if (string.includes('fin')) {
-        endDate = string.split('fin')[1].replace(/\//g, '-')
-      } else if (string.includes('Type')) {
-        type = string.split('contrat')[1]
-      } else {
-        this.log('info', 'includes nothing')
-      }
-    })
-    const contract = {
-      startDate,
-      type
-    }
-    if (endDate) {
-      contract.endDate = endDate
-    }
-    allContractsInfos.push(contract)
-    await this.sendToPilot({ contractsInfos: allContractsInfos })
-  }
-
-  async checkInterception(args) {
-    this.log('info', `📍️ checkInterception for ${args.type} starts`)
-    await waitFor(
-      () => {
-        if (args.type === 'identity') {
-          if (
-            interceptor.personalInfos.length > 0 &&
-            interceptor.userSettings.length > 0
-          ) {
-            this.log('info', 'personalInfos interception OK')
-            return true
-          }
-          return false
-        }
-        if (args.type === 'bills') {
-          this.log('info', `📍️ checkInterception for ${args.number} bills`)
-          if (
-            interceptor.bills.length > 0 &&
-            interceptor.billsHrefs.length === args.number
-          ) {
-            this.log('info', 'bills interception OK')
-            return true
-          }
-          return false
-        }
-      },
-      {
-        interval: 1000,
-        timeout: 30 * 1000
-      }
-    )
-    return true
-  }
-
-  async getIdentity() {
-    this.log('info', '📍️ getIdentity starts')
-    const infos = interceptor.personalInfos[0].variables
-    const emails = interceptor.userSettings[0].userEmails
-    const userIdentity = {
+  parseIdentity({ userSettings, personnalInformations }) {
+    this.log('info', '📍️ parseIdentity starts')
+    const infos = personnalInformations.response.variables
+    const emails = userSettings.response.userEmails
+    const identity = {
       name: {
         givenName: infos.firstName,
         familyName: infos.birthName
@@ -799,25 +480,25 @@ class PayfitContentScript extends ContentScript {
     }
     if (infos.phoneNumber) {
       this.log('info', 'phoneNumber is defined, saving it')
-      userIdentity.phone.push({
+      identity.phone.push({
         number: infos.phoneNumber,
         type: this.determinePhoneType(infos.phoneNumber)
       })
     } else {
       this.log(
         'info',
-        'phoneNumber is null, deleting phone entry from userIdentity'
+        'phoneNumber is null, deleting phone entry from identity'
       )
-      delete userIdentity.phone
+      delete identity.phone
     }
     const foundAddress = this.getAddress(infos)
     for (const email of emails) {
       if (email.primary) {
-        userIdentity.email.push({ address: email.address })
+        identity.email.push({ address: email.address })
       }
     }
-    userIdentity.address.push(foundAddress)
-    await this.sendToPilot({ userIdentity })
+    identity.address.push(foundAddress)
+    return identity
   }
 
   determinePhoneType(phoneNumber) {
@@ -865,193 +546,6 @@ class PayfitContentScript extends ContentScript {
 
     return address
   }
-
-  async getBills() {
-    this.log('info', '📍️ getBills starts')
-    const billsToMatch = []
-    interceptor.bills[0].forEach(bill => {
-      let matchId = interceptor.billsHrefs.some(entry =>
-        entry.includes(bill.id)
-      )
-      if (matchId) {
-        billsToMatch.push(bill)
-      }
-    })
-    const billsInfos = billsToMatch
-    const computedBills = []
-    const accountChoice = JSON.parse(
-      window.localStorage.getItem('accountChoice')
-    )
-    const companyName = accountChoice.companyInfo.name
-    await this.sendToPilot({ companyName })
-    for (const bill of billsInfos) {
-      const billId = bill.id
-      const issueDate = bill.createdAt
-      const date = getDateFromAbsoluteMonth(bill.absoluteMonth)
-      const filename = `${companyName}_${format(
-        date,
-        'yyyy_MM'
-      )}_${billId.slice(-5)}.pdf`
-      const computedBill = {
-        date: format(date, 'yyyy-MM-dd'),
-        filename,
-        // This is supposed to be added to the data  by the "processPdf" function in saveBills opt.
-        // after scraping the associated PDF. But for now, this feature is not handled by cozy-clisk.
-        // For the saveBills to work properly we need to add an amount and a vendor to the bill at least
-        // amount: 2000,
-        // vendor: 'payfit.fr',
-        companyName,
-        // We keep both vendorID & vendorRef for historical purposes
-        vendorId: billId,
-        vendorRef: billId,
-        recurrence: 'monthly',
-        fileAttributes: {
-          metadata: {
-            contentAuthor: 'payfit.com',
-            issueDate: new Date(issueDate),
-            carbonCopy: true
-          }
-        }
-      }
-      const downloadHref = await this.getDownloadHref(billId)
-      computedBill.fileurl = `https://api.payfit.com/files${downloadHref}`
-      computedBills.push(computedBill)
-    }
-    interceptor.billsHrefs.length = 0
-    return computedBills
-  }
-
-  async getDownloadHref(id) {
-    this.log('info', '📍️ getDownloadHref starts')
-    for (let i = 0; i < interceptor.billsHrefs.length; i++) {
-      if (interceptor.billsHrefs[i].includes(id)) {
-        return interceptor.billsHrefs[i]
-      }
-    }
-    throw new Error('No href found with this is, check the code')
-
-    // Keeping this code around if we find a way to get the Bearer token later
-    // const urlResp = await this.window
-    //   .fetch(
-    //     `https://api.payfit.com/files/file/${id}/presigned-url?attachment=1`
-    //   )
-    //   .then(response => {
-    //     if (!response.ok) {
-    //       throw new Error('Something went wrong when fetching a download URL')
-    //     }
-    //     return response.json()
-    //   })
-    // return urlResp.url
-  }
-
-  async determineContractToSelect(fetchedDatesArray, numberOfContracts) {
-    this.log('info', '📍️ determineContractToSelect starts')
-    const contractButtons = document.querySelectorAll(
-      'button[data-testid="accountButton"]'
-    )
-    const datesArray = [...fetchedDatesArray]
-    let numberOfFetchedContracts = 0
-    for (let i = 0; i < contractButtons.length; i++) {
-      const contractDate = this.getContractDate(contractButtons[i])
-      const index = fetchedDatesArray.findIndex(
-        element => element === contractDate
-      )
-      if (index === -1) {
-        this.log('info', 'This contract could be fetch')
-        datesArray.push(contractDate)
-        contractButtons[i].click()
-        await this.sendToPilot({ fetchedDates: datesArray })
-        break
-      } else {
-        this.log('info', 'This contract has already been fetched, continue')
-        numberOfFetchedContracts++
-      }
-    }
-    if (numberOfFetchedContracts === numberOfContracts) {
-      this.log('info', 'Last contract fetched, finishing ...')
-      return true
-    }
-    return false
-  }
-
-  getContractDate(contractElement) {
-    this.log('info', '📍️ getContractDate starts')
-    const foundSpan = contractElement.querySelector('h5').nextSibling
-    if (foundSpan.nodeName === 'SPAN') {
-      this.log('info', 'Found contractDate element')
-      return foundSpan.textContent?.split(':')[1].trim()
-    } else {
-      throw new Error(
-        'Something went wrong finding the contractDate element, check the code'
-      )
-    }
-  }
-
-  async selectMenuItem(type) {
-    this.log('info', '📍️ selectMenuItem starts')
-    const wantedType =
-      type === 'logout' ? 'Me déconnecter' : 'Changer de compte'
-    const menuItems = document.querySelectorAll('div[role="menuitem"]')
-    let wantedItemFound = false
-    for (let i = 0; i < menuItems.length; i++) {
-      const optionElement = menuItems[i].querySelector('span')
-      const option = optionElement.textContent
-      if (option === wantedType) {
-        menuItems[i].childNodes[0].click()
-        wantedItemFound = true
-        break
-      }
-    }
-    if (wantedItemFound) {
-      return true
-    } else {
-      throw new Error(
-        `No options matched "${wantedType}" expectations, check the code`
-      )
-    }
-  }
-
-  async clickAccountSwitcher() {
-    this.log('info', '📍️ clickAccountSwitcher starts')
-    const searchedId = document
-      .querySelector('button[data-testid="account-switcher-button"]')
-      .getAttribute('id')
-    const element = document.querySelector(`#${searchedId}`)
-
-    const propsName = Object.keys(element).find(e =>
-      e.startsWith('__reactProps')
-    )
-    element[propsName].onPointerDown(new PointerEvent('click'))
-  }
-
-  determinePayslipsToFetch(group) {
-    this.log('info', '📍️ determinePayslipsToFetch starts')
-    const neededPayslips = []
-    const sectionBillsElements = document.querySelectorAll(
-      'div[data-testid*="payslip-"] > div'
-    )
-    for (const billElement of sectionBillsElements) {
-      const elementId = billElement.parentNode.getAttribute('data-testid')
-      if (group.includes(elementId)) {
-        neededPayslips.push(billElement)
-      }
-    }
-    return neededPayslips
-  }
-
-  clickNeededPayslips(neededPayslips) {
-    this.log('info', '📍️ clickNeededPayslips starts')
-    const payslipsIds = []
-    for (let i = 0; i < neededPayslips.length; i++) {
-      const elementId = neededPayslips[i].parentNode.getAttribute('data-testid')
-      if (payslipsIds.includes(elementId)) {
-        continue
-      }
-      payslipsIds.push(elementId)
-      neededPayslips[i].click()
-    }
-    return payslipsIds
-  }
 }
 
 function getDateFromAbsoluteMonth(absoluteMonth) {
@@ -1061,21 +555,7 @@ function getDateFromAbsoluteMonth(absoluteMonth) {
 const connector = new PayfitContentScript()
 connector
   .init({
-    additionalExposedMethodsNames: [
-      'waitFor2FA',
-      'selectClosestToDateContract',
-      'getProfilButtonClass',
-      'getIdentity',
-      'checkInterception',
-      'getBills',
-      'determineContractToSelect',
-      'getContractInfos',
-      'emptyInterceptionsArrays',
-      'getPayslipsInfos',
-      'showAndFetchPayslipsBatch',
-      'selectMenuItem',
-      'clickAccountSwitcher'
-    ]
+    additionalExposedMethodsNames: ['waitFor2FA']
   })
   .catch(err => {
     log.warn(err)
