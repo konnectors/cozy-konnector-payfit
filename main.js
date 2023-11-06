@@ -5559,15 +5559,15 @@ class RequestInterceptor {
           console.log('❌❌❌ xhr interception error', err.message)
         }
       }
-      window.fetch = async (...args) => {
-        const response = await self.savedFetch(...args)
+      window.fetch = async function (...args) {
+        const response = await self.savedFetch.apply(window, args)
         try {
           const [input, options] = args
           const url =
             typeof input === 'string' ? input : input?.url || input?.toString()
           const method = options?.method || input?.method || 'GET'
           const responseHeaders = {}
-          for (const [key, value] of response.responseHeaders.entries()) {
+          for (const [key, value] of response.headers.entries()) {
             responseHeaders[key] = value
           }
           self.serializeAndEmitResponse({
