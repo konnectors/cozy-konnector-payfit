@@ -5471,19 +5471,210 @@ module.exports = JSON.parse('{"name":"cozy-clisk","version":"0.26.0","descriptio
 "use strict";
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   "default": () => (/* binding */ RequestInterceptor)
+/* harmony export */ });
+/* harmony import */ var microee__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(23);
+/* harmony import */ var microee__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__webpack_require__.n(microee__WEBPACK_IMPORTED_MODULE_0__);
+/* harmony import */ var cozy_clisk_dist_contentscript_utils__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(41);
+/* eslint no-console: off */
+
+
+
+
+/**
+ * Intercept any xhr or fetch request corresponding to the given interception list
+ */
+class RequestInterceptor {
+  /**
+   * @constructor
+   * @param {Array<InterceptionDocument>} interceptions - the list of url to intercept
+   */
+  constructor(interceptions) {
+    this.interceptions = interceptions
+    this.savedSetRequestHeader =
+      window.XMLHttpRequest.prototype.setRequestHeader
+    this.savedOpen = window.XMLHttpRequest.prototype.open
+    this.savedFetch = window.fetch
+  }
+
+  /**
+   * Restore original request function to default values
+   */
+  restore() {
+    window.XMLHttpRequest.prototype.setRequestHeader =
+      this.savedSetRequestHeader
+    window.XMLHttpRequest.prototype.open = this.savedOpen
+    window.fetch = this.savedFetch
+  }
+
+  /**
+   * Init the replacemenet of xhr and fetch function to be able to intercept requests
+   */
+  init() {
+    try {
+      const self = this
+      window.XMLHttpRequest.prototype.setRequestHeader = function (key, value) {
+        try {
+          const newValue = this._requestHeaders[key]
+            ? (this._requestHeaders[key] += ', ' + value)
+            : value
+          this._requestHeaders[key] = newValue
+          return self.savedSetRequestHeader.apply(
+            this,
+            [].slice.call(arguments)
+          )
+        } catch (err) {
+          console.log(
+            '❌❌❌ xhr setRequestHeader interception error',
+            err.message
+          )
+        }
+      }
+      window.XMLHttpRequest.prototype.open = function (method, url) {
+        try {
+          const response = this
+          response._requestHeaders = {}
+          response.addEventListener('readystatechange', function () {
+            if (response.readyState === 4) {
+              const responseHeaders = {}
+              const allResponseHeaders = response.getAllResponseHeaders()
+                ? response.getAllResponseHeaders().split('\r\n')
+                : []
+              for (const header of allResponseHeaders) {
+                const [key, value] = header.split(': ')
+                responseHeaders[key] = value
+              }
+              self.serializeAndEmitResponse({
+                method,
+                url,
+                response,
+                responseHeaders,
+                requestHeaders: response._requestHeaders
+              })
+            }
+            return response
+          })
+          return self.savedOpen.apply(response, [].slice.call(arguments))
+        } catch (err) {
+          console.log('❌❌❌ xhr interception error', err.message)
+        }
+      }
+      window.fetch = async (...args) => {
+        const response = await self.savedFetch(...args)
+        try {
+          const [input, options] = args
+          const url =
+            typeof input === 'string' ? input : input?.url || input?.toString()
+          const method = options?.method || input?.method || 'GET'
+          const responseHeaders = {}
+          for (const [key, value] of response.responseHeaders.entries()) {
+            responseHeaders[key] = value
+          }
+          self.serializeAndEmitResponse({
+            method,
+            url,
+            response,
+            responseHeaders,
+            requestHeaders: options?.headers
+          })
+          return response
+        } catch (err) {
+          console.log(
+            '❌❌❌ fetch interception error',
+            err.message,
+            JSON.stringify(args, null, 2)
+          )
+        }
+      }
+    } catch (err) {
+      console.log('❌❌❌ interceptor init error', err.message)
+    }
+  }
+  /**
+   * Serialize the intercepted response according to the "serialize" attribute given in the
+   * interception list and emit it as a "response" event
+   *
+   * @param {Response}
+   */
+  async serializeAndEmitResponse(resp) {
+    const interception = this.interceptions.find(doc =>
+      resp.method === doc.method && doc.exact
+        ? resp.url === doc.url
+        : resp.url.includes(doc.url)
+    )
+    if (!interception) return
+
+    resp.label = interception.label
+
+    // response serialization, to be able to transfer to the pilot
+    if (interception.serialization === 'json') {
+      if (resp.response instanceof Response) {
+        resp.response = await resp.response.clone().json()
+      } else {
+        resp.response = JSON.parse(resp.response.responseText)
+      }
+    } else if (interception.serialization === 'text') {
+      if (resp.response instanceof Response) {
+        resp.response = await resp.response.clone().text()
+      } else {
+        resp.response = resp.response.responseText
+      }
+    } else if (interception.serialization === 'dataUri') {
+      if (resp.response instanceof Response) {
+        resp.response = (0,cozy_clisk_dist_contentscript_utils__WEBPACK_IMPORTED_MODULE_1__.blobToBase64)(await resp.response.clone().blob())
+      } else {
+        resp.response = (0,cozy_clisk_dist_contentscript_utils__WEBPACK_IMPORTED_MODULE_1__.blobToBase64)(resp.response.response)
+      }
+    } else {
+      console.log(
+        '❌❌❌ wrong serialization method : ' + interception.serialization
+      )
+    }
+    this.emit('response', resp)
+  }
+}
+
+microee__WEBPACK_IMPORTED_MODULE_0___default().mixin(RequestInterceptor)
+
+/**
+ * @typedef EmittedResponse
+ * @property {string} label - a name given to the interception
+ * @property {'GET'|'POST'|'PUT'|'DELETE'} method - the method of the intercepted request
+ * @property {string} url - the url intercepted request url
+ * @property {Response} response - raw response of the intercepted request
+ * @property {object} responseHeaders - response headers
+ * @property {object} requestHeaders - request headers
+ */
+
+/**
+ * @typedef InterceptionDocument
+ * @property {string} label - a name given to the interception, will be found in the response later
+ * @property {string} url - the url to intercept
+ * @property {'GET'|'POST'|'PUT'|'DELETE'} method - the method of the url to intercept
+ * @property {boolean} exact - true if the intercepted url must exactly correspond to the given url
+ */
+
+
+/***/ }),
+/* 47 */
+/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+
+"use strict";
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   "default": () => (/* binding */ format)
 /* harmony export */ });
-/* harmony import */ var _isValid_index_js__WEBPACK_IMPORTED_MODULE_5__ = __webpack_require__(63);
-/* harmony import */ var _subMilliseconds_index_js__WEBPACK_IMPORTED_MODULE_7__ = __webpack_require__(66);
-/* harmony import */ var _toDate_index_js__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(61);
-/* harmony import */ var _lib_format_formatters_index_js__WEBPACK_IMPORTED_MODULE_9__ = __webpack_require__(69);
-/* harmony import */ var _lib_format_longFormatters_index_js__WEBPACK_IMPORTED_MODULE_8__ = __webpack_require__(68);
-/* harmony import */ var _lib_getTimezoneOffsetInMilliseconds_index_js__WEBPACK_IMPORTED_MODULE_6__ = __webpack_require__(65);
-/* harmony import */ var _lib_protectedTokens_index_js__WEBPACK_IMPORTED_MODULE_10__ = __webpack_require__(81);
-/* harmony import */ var _lib_toInteger_index_js__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(60);
-/* harmony import */ var _lib_requiredArgs_index_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(47);
-/* harmony import */ var _lib_defaultOptions_index_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(48);
-/* harmony import */ var _lib_defaultLocale_index_js__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(49);
+/* harmony import */ var _isValid_index_js__WEBPACK_IMPORTED_MODULE_5__ = __webpack_require__(64);
+/* harmony import */ var _subMilliseconds_index_js__WEBPACK_IMPORTED_MODULE_7__ = __webpack_require__(67);
+/* harmony import */ var _toDate_index_js__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(62);
+/* harmony import */ var _lib_format_formatters_index_js__WEBPACK_IMPORTED_MODULE_9__ = __webpack_require__(70);
+/* harmony import */ var _lib_format_longFormatters_index_js__WEBPACK_IMPORTED_MODULE_8__ = __webpack_require__(69);
+/* harmony import */ var _lib_getTimezoneOffsetInMilliseconds_index_js__WEBPACK_IMPORTED_MODULE_6__ = __webpack_require__(66);
+/* harmony import */ var _lib_protectedTokens_index_js__WEBPACK_IMPORTED_MODULE_10__ = __webpack_require__(82);
+/* harmony import */ var _lib_toInteger_index_js__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(61);
+/* harmony import */ var _lib_requiredArgs_index_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(48);
+/* harmony import */ var _lib_defaultOptions_index_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(49);
+/* harmony import */ var _lib_defaultLocale_index_js__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(50);
 
 
 
@@ -5888,7 +6079,7 @@ function cleanEscapedString(input) {
 }
 
 /***/ }),
-/* 47 */
+/* 48 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 "use strict";
@@ -5903,7 +6094,7 @@ function requiredArgs(required, args) {
 }
 
 /***/ }),
-/* 48 */
+/* 49 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 "use strict";
@@ -5921,19 +6112,6 @@ function setDefaultOptions(newOptions) {
 }
 
 /***/ }),
-/* 49 */
-/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
-
-"use strict";
-__webpack_require__.r(__webpack_exports__);
-/* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   "default": () => (__WEBPACK_DEFAULT_EXPORT__)
-/* harmony export */ });
-/* harmony import */ var _locale_en_US_index_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(50);
-
-/* harmony default export */ const __WEBPACK_DEFAULT_EXPORT__ = (_locale_en_US_index_js__WEBPACK_IMPORTED_MODULE_0__["default"]);
-
-/***/ }),
 /* 50 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
@@ -5942,11 +6120,24 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   "default": () => (__WEBPACK_DEFAULT_EXPORT__)
 /* harmony export */ });
-/* harmony import */ var _lib_formatDistance_index_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(51);
-/* harmony import */ var _lib_formatLong_index_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(52);
-/* harmony import */ var _lib_formatRelative_index_js__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(54);
-/* harmony import */ var _lib_localize_index_js__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(55);
-/* harmony import */ var _lib_match_index_js__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(57);
+/* harmony import */ var _locale_en_US_index_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(51);
+
+/* harmony default export */ const __WEBPACK_DEFAULT_EXPORT__ = (_locale_en_US_index_js__WEBPACK_IMPORTED_MODULE_0__["default"]);
+
+/***/ }),
+/* 51 */
+/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+
+"use strict";
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   "default": () => (__WEBPACK_DEFAULT_EXPORT__)
+/* harmony export */ });
+/* harmony import */ var _lib_formatDistance_index_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(52);
+/* harmony import */ var _lib_formatLong_index_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(53);
+/* harmony import */ var _lib_formatRelative_index_js__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(55);
+/* harmony import */ var _lib_localize_index_js__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(56);
+/* harmony import */ var _lib_match_index_js__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(58);
 
 
 
@@ -5976,7 +6167,7 @@ var locale = {
 /* harmony default export */ const __WEBPACK_DEFAULT_EXPORT__ = (locale);
 
 /***/ }),
-/* 51 */
+/* 52 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 "use strict";
@@ -6069,7 +6260,7 @@ var formatDistance = function formatDistance(token, count, options) {
 /* harmony default export */ const __WEBPACK_DEFAULT_EXPORT__ = (formatDistance);
 
 /***/ }),
-/* 52 */
+/* 53 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 "use strict";
@@ -6077,7 +6268,7 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   "default": () => (__WEBPACK_DEFAULT_EXPORT__)
 /* harmony export */ });
-/* harmony import */ var _lib_buildFormatLongFn_index_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(53);
+/* harmony import */ var _lib_buildFormatLongFn_index_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(54);
 
 var dateFormats = {
   full: 'EEEE, MMMM do, y',
@@ -6114,7 +6305,7 @@ var formatLong = {
 /* harmony default export */ const __WEBPACK_DEFAULT_EXPORT__ = (formatLong);
 
 /***/ }),
-/* 53 */
+/* 54 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 "use strict";
@@ -6133,7 +6324,7 @@ function buildFormatLongFn(args) {
 }
 
 /***/ }),
-/* 54 */
+/* 55 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 "use strict";
@@ -6155,7 +6346,7 @@ var formatRelative = function formatRelative(token, _date, _baseDate, _options) 
 /* harmony default export */ const __WEBPACK_DEFAULT_EXPORT__ = (formatRelative);
 
 /***/ }),
-/* 55 */
+/* 56 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 "use strict";
@@ -6163,7 +6354,7 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   "default": () => (__WEBPACK_DEFAULT_EXPORT__)
 /* harmony export */ });
-/* harmony import */ var _lib_buildLocalizeFn_index_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(56);
+/* harmony import */ var _lib_buildLocalizeFn_index_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(57);
 
 var eraValues = {
   narrow: ['B', 'A'],
@@ -6309,7 +6500,7 @@ var localize = {
 /* harmony default export */ const __WEBPACK_DEFAULT_EXPORT__ = (localize);
 
 /***/ }),
-/* 56 */
+/* 57 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 "use strict";
@@ -6337,7 +6528,7 @@ function buildLocalizeFn(args) {
 }
 
 /***/ }),
-/* 57 */
+/* 58 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 "use strict";
@@ -6345,8 +6536,8 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   "default": () => (__WEBPACK_DEFAULT_EXPORT__)
 /* harmony export */ });
-/* harmony import */ var _lib_buildMatchFn_index_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(59);
-/* harmony import */ var _lib_buildMatchPatternFn_index_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(58);
+/* harmony import */ var _lib_buildMatchFn_index_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(60);
+/* harmony import */ var _lib_buildMatchPatternFn_index_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(59);
 
 
 var matchOrdinalNumberPattern = /^(\d+)(th|st|nd|rd)?/i;
@@ -6447,7 +6638,7 @@ var match = {
 /* harmony default export */ const __WEBPACK_DEFAULT_EXPORT__ = (match);
 
 /***/ }),
-/* 58 */
+/* 59 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 "use strict";
@@ -6474,7 +6665,7 @@ function buildMatchPatternFn(args) {
 }
 
 /***/ }),
-/* 59 */
+/* 60 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 "use strict";
@@ -6526,7 +6717,7 @@ function findIndex(array, predicate) {
 }
 
 /***/ }),
-/* 60 */
+/* 61 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 "use strict";
@@ -6546,7 +6737,7 @@ function toInteger(dirtyNumber) {
 }
 
 /***/ }),
-/* 61 */
+/* 62 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 "use strict";
@@ -6554,8 +6745,8 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   "default": () => (/* binding */ toDate)
 /* harmony export */ });
-/* harmony import */ var _babel_runtime_helpers_esm_typeof__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(62);
-/* harmony import */ var _lib_requiredArgs_index_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(47);
+/* harmony import */ var _babel_runtime_helpers_esm_typeof__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(63);
+/* harmony import */ var _lib_requiredArgs_index_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(48);
 
 
 /**
@@ -6610,7 +6801,7 @@ function toDate(argument) {
 }
 
 /***/ }),
-/* 62 */
+/* 63 */
 /***/ ((__unused_webpack___webpack_module__, __webpack_exports__, __webpack_require__) => {
 
 "use strict";
@@ -6629,7 +6820,7 @@ function _typeof(obj) {
 }
 
 /***/ }),
-/* 63 */
+/* 64 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 "use strict";
@@ -6637,9 +6828,9 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   "default": () => (/* binding */ isValid)
 /* harmony export */ });
-/* harmony import */ var _isDate_index_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(64);
-/* harmony import */ var _toDate_index_js__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(61);
-/* harmony import */ var _lib_requiredArgs_index_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(47);
+/* harmony import */ var _isDate_index_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(65);
+/* harmony import */ var _toDate_index_js__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(62);
+/* harmony import */ var _lib_requiredArgs_index_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(48);
 
 
 
@@ -6684,7 +6875,7 @@ function isValid(dirtyDate) {
 }
 
 /***/ }),
-/* 64 */
+/* 65 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 "use strict";
@@ -6692,8 +6883,8 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   "default": () => (/* binding */ isDate)
 /* harmony export */ });
-/* harmony import */ var _babel_runtime_helpers_esm_typeof__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(62);
-/* harmony import */ var _lib_requiredArgs_index_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(47);
+/* harmony import */ var _babel_runtime_helpers_esm_typeof__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(63);
+/* harmony import */ var _lib_requiredArgs_index_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(48);
 
 
 /**
@@ -6734,7 +6925,7 @@ function isDate(value) {
 }
 
 /***/ }),
-/* 65 */
+/* 66 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 "use strict";
@@ -6760,7 +6951,7 @@ function getTimezoneOffsetInMilliseconds(date) {
 }
 
 /***/ }),
-/* 66 */
+/* 67 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 "use strict";
@@ -6768,9 +6959,9 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   "default": () => (/* binding */ subMilliseconds)
 /* harmony export */ });
-/* harmony import */ var _addMilliseconds_index_js__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(67);
-/* harmony import */ var _lib_requiredArgs_index_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(47);
-/* harmony import */ var _lib_toInteger_index_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(60);
+/* harmony import */ var _addMilliseconds_index_js__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(68);
+/* harmony import */ var _lib_requiredArgs_index_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(48);
+/* harmony import */ var _lib_toInteger_index_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(61);
 
 
 
@@ -6799,7 +6990,7 @@ function subMilliseconds(dirtyDate, dirtyAmount) {
 }
 
 /***/ }),
-/* 67 */
+/* 68 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 "use strict";
@@ -6807,9 +6998,9 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   "default": () => (/* binding */ addMilliseconds)
 /* harmony export */ });
-/* harmony import */ var _lib_toInteger_index_js__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(60);
-/* harmony import */ var _toDate_index_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(61);
-/* harmony import */ var _lib_requiredArgs_index_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(47);
+/* harmony import */ var _lib_toInteger_index_js__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(61);
+/* harmony import */ var _toDate_index_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(62);
+/* harmony import */ var _lib_requiredArgs_index_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(48);
 
 
 
@@ -6839,7 +7030,7 @@ function addMilliseconds(dirtyDate, dirtyAmount) {
 }
 
 /***/ }),
-/* 68 */
+/* 69 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 "use strict";
@@ -6929,7 +7120,7 @@ var longFormatters = {
 /* harmony default export */ const __WEBPACK_DEFAULT_EXPORT__ = (longFormatters);
 
 /***/ }),
-/* 69 */
+/* 70 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 "use strict";
@@ -6937,13 +7128,13 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   "default": () => (__WEBPACK_DEFAULT_EXPORT__)
 /* harmony export */ });
-/* harmony import */ var _lib_getUTCDayOfYear_index_js__WEBPACK_IMPORTED_MODULE_6__ = __webpack_require__(80);
-/* harmony import */ var _lib_getUTCISOWeek_index_js__WEBPACK_IMPORTED_MODULE_5__ = __webpack_require__(78);
-/* harmony import */ var _lib_getUTCISOWeekYear_index_js__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(74);
-/* harmony import */ var _lib_getUTCWeek_index_js__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(76);
-/* harmony import */ var _lib_getUTCWeekYear_index_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(72);
-/* harmony import */ var _addLeadingZeros_index_js__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(71);
-/* harmony import */ var _lightFormatters_index_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(70);
+/* harmony import */ var _lib_getUTCDayOfYear_index_js__WEBPACK_IMPORTED_MODULE_6__ = __webpack_require__(81);
+/* harmony import */ var _lib_getUTCISOWeek_index_js__WEBPACK_IMPORTED_MODULE_5__ = __webpack_require__(79);
+/* harmony import */ var _lib_getUTCISOWeekYear_index_js__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(75);
+/* harmony import */ var _lib_getUTCWeek_index_js__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(77);
+/* harmony import */ var _lib_getUTCWeekYear_index_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(73);
+/* harmony import */ var _addLeadingZeros_index_js__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(72);
+/* harmony import */ var _lightFormatters_index_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(71);
 
 
 
@@ -7718,7 +7909,7 @@ function formatTimezone(offset, dirtyDelimiter) {
 /* harmony default export */ const __WEBPACK_DEFAULT_EXPORT__ = (formatters);
 
 /***/ }),
-/* 70 */
+/* 71 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 "use strict";
@@ -7726,7 +7917,7 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   "default": () => (__WEBPACK_DEFAULT_EXPORT__)
 /* harmony export */ });
-/* harmony import */ var _addLeadingZeros_index_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(71);
+/* harmony import */ var _addLeadingZeros_index_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(72);
 
 /*
  * |     | Unit                           |     | Unit                           |
@@ -7809,7 +8000,7 @@ var formatters = {
 /* harmony default export */ const __WEBPACK_DEFAULT_EXPORT__ = (formatters);
 
 /***/ }),
-/* 71 */
+/* 72 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 "use strict";
@@ -7827,7 +8018,7 @@ function addLeadingZeros(number, targetLength) {
 }
 
 /***/ }),
-/* 72 */
+/* 73 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 "use strict";
@@ -7835,11 +8026,11 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   "default": () => (/* binding */ getUTCWeekYear)
 /* harmony export */ });
-/* harmony import */ var _toDate_index_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(61);
-/* harmony import */ var _requiredArgs_index_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(47);
-/* harmony import */ var _startOfUTCWeek_index_js__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(73);
-/* harmony import */ var _toInteger_index_js__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(60);
-/* harmony import */ var _defaultOptions_index_js__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(48);
+/* harmony import */ var _toDate_index_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(62);
+/* harmony import */ var _requiredArgs_index_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(48);
+/* harmony import */ var _startOfUTCWeek_index_js__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(74);
+/* harmony import */ var _toInteger_index_js__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(61);
+/* harmony import */ var _defaultOptions_index_js__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(49);
 
 
 
@@ -7875,7 +8066,7 @@ function getUTCWeekYear(dirtyDate, options) {
 }
 
 /***/ }),
-/* 73 */
+/* 74 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 "use strict";
@@ -7883,10 +8074,10 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   "default": () => (/* binding */ startOfUTCWeek)
 /* harmony export */ });
-/* harmony import */ var _toDate_index_js__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(61);
-/* harmony import */ var _requiredArgs_index_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(47);
-/* harmony import */ var _toInteger_index_js__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(60);
-/* harmony import */ var _defaultOptions_index_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(48);
+/* harmony import */ var _toDate_index_js__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(62);
+/* harmony import */ var _requiredArgs_index_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(48);
+/* harmony import */ var _toInteger_index_js__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(61);
+/* harmony import */ var _defaultOptions_index_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(49);
 
 
 
@@ -7910,7 +8101,7 @@ function startOfUTCWeek(dirtyDate, options) {
 }
 
 /***/ }),
-/* 74 */
+/* 75 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 "use strict";
@@ -7918,9 +8109,9 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   "default": () => (/* binding */ getUTCISOWeekYear)
 /* harmony export */ });
-/* harmony import */ var _toDate_index_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(61);
-/* harmony import */ var _requiredArgs_index_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(47);
-/* harmony import */ var _startOfUTCISOWeek_index_js__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(75);
+/* harmony import */ var _toDate_index_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(62);
+/* harmony import */ var _requiredArgs_index_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(48);
+/* harmony import */ var _startOfUTCISOWeek_index_js__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(76);
 
 
 
@@ -7946,7 +8137,7 @@ function getUTCISOWeekYear(dirtyDate) {
 }
 
 /***/ }),
-/* 75 */
+/* 76 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 "use strict";
@@ -7954,8 +8145,8 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   "default": () => (/* binding */ startOfUTCISOWeek)
 /* harmony export */ });
-/* harmony import */ var _toDate_index_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(61);
-/* harmony import */ var _requiredArgs_index_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(47);
+/* harmony import */ var _toDate_index_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(62);
+/* harmony import */ var _requiredArgs_index_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(48);
 
 
 function startOfUTCISOWeek(dirtyDate) {
@@ -7970,7 +8161,7 @@ function startOfUTCISOWeek(dirtyDate) {
 }
 
 /***/ }),
-/* 76 */
+/* 77 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 "use strict";
@@ -7978,10 +8169,10 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   "default": () => (/* binding */ getUTCWeek)
 /* harmony export */ });
-/* harmony import */ var _toDate_index_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(61);
-/* harmony import */ var _startOfUTCWeek_index_js__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(73);
-/* harmony import */ var _startOfUTCWeekYear_index_js__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(77);
-/* harmony import */ var _requiredArgs_index_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(47);
+/* harmony import */ var _toDate_index_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(62);
+/* harmony import */ var _startOfUTCWeek_index_js__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(74);
+/* harmony import */ var _startOfUTCWeekYear_index_js__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(78);
+/* harmony import */ var _requiredArgs_index_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(48);
 
 
 
@@ -7999,7 +8190,7 @@ function getUTCWeek(dirtyDate, options) {
 }
 
 /***/ }),
-/* 77 */
+/* 78 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 "use strict";
@@ -8007,11 +8198,11 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   "default": () => (/* binding */ startOfUTCWeekYear)
 /* harmony export */ });
-/* harmony import */ var _getUTCWeekYear_index_js__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(72);
-/* harmony import */ var _requiredArgs_index_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(47);
-/* harmony import */ var _startOfUTCWeek_index_js__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(73);
-/* harmony import */ var _toInteger_index_js__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(60);
-/* harmony import */ var _defaultOptions_index_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(48);
+/* harmony import */ var _getUTCWeekYear_index_js__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(73);
+/* harmony import */ var _requiredArgs_index_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(48);
+/* harmony import */ var _startOfUTCWeek_index_js__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(74);
+/* harmony import */ var _toInteger_index_js__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(61);
+/* harmony import */ var _defaultOptions_index_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(49);
 
 
 
@@ -8031,7 +8222,7 @@ function startOfUTCWeekYear(dirtyDate, options) {
 }
 
 /***/ }),
-/* 78 */
+/* 79 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 "use strict";
@@ -8039,10 +8230,10 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   "default": () => (/* binding */ getUTCISOWeek)
 /* harmony export */ });
-/* harmony import */ var _toDate_index_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(61);
-/* harmony import */ var _startOfUTCISOWeek_index_js__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(75);
-/* harmony import */ var _startOfUTCISOWeekYear_index_js__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(79);
-/* harmony import */ var _requiredArgs_index_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(47);
+/* harmony import */ var _toDate_index_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(62);
+/* harmony import */ var _startOfUTCISOWeek_index_js__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(76);
+/* harmony import */ var _startOfUTCISOWeekYear_index_js__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(80);
+/* harmony import */ var _requiredArgs_index_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(48);
 
 
 
@@ -8060,7 +8251,7 @@ function getUTCISOWeek(dirtyDate) {
 }
 
 /***/ }),
-/* 79 */
+/* 80 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 "use strict";
@@ -8068,9 +8259,9 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   "default": () => (/* binding */ startOfUTCISOWeekYear)
 /* harmony export */ });
-/* harmony import */ var _getUTCISOWeekYear_index_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(74);
-/* harmony import */ var _startOfUTCISOWeek_index_js__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(75);
-/* harmony import */ var _requiredArgs_index_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(47);
+/* harmony import */ var _getUTCISOWeekYear_index_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(75);
+/* harmony import */ var _startOfUTCISOWeek_index_js__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(76);
+/* harmony import */ var _requiredArgs_index_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(48);
 
 
 
@@ -8085,7 +8276,7 @@ function startOfUTCISOWeekYear(dirtyDate) {
 }
 
 /***/ }),
-/* 80 */
+/* 81 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 "use strict";
@@ -8093,8 +8284,8 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   "default": () => (/* binding */ getUTCDayOfYear)
 /* harmony export */ });
-/* harmony import */ var _toDate_index_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(61);
-/* harmony import */ var _requiredArgs_index_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(47);
+/* harmony import */ var _toDate_index_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(62);
+/* harmony import */ var _requiredArgs_index_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(48);
 
 
 var MILLISECONDS_IN_DAY = 86400000;
@@ -8110,7 +8301,7 @@ function getUTCDayOfYear(dirtyDate) {
 }
 
 /***/ }),
-/* 81 */
+/* 82 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 "use strict";
@@ -8227,102 +8418,101 @@ var __webpack_exports__ = {};
 "use strict";
 __webpack_require__.r(__webpack_exports__);
 /* harmony import */ var cozy_clisk_dist_contentscript__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(1);
-/* harmony import */ var _cozy_minilog__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(20);
-/* harmony import */ var _cozy_minilog__WEBPACK_IMPORTED_MODULE_1___default = /*#__PURE__*/__webpack_require__.n(_cozy_minilog__WEBPACK_IMPORTED_MODULE_1__);
-/* harmony import */ var p_wait_for__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(18);
-/* harmony import */ var date_fns__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(46);
+/* harmony import */ var cozy_clisk_dist_contentscript_utils__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(41);
+/* harmony import */ var _cozy_minilog__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(20);
+/* harmony import */ var _cozy_minilog__WEBPACK_IMPORTED_MODULE_2___default = /*#__PURE__*/__webpack_require__.n(_cozy_minilog__WEBPACK_IMPORTED_MODULE_2__);
+/* harmony import */ var p_wait_for__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(18);
+/* harmony import */ var date_fns__WEBPACK_IMPORTED_MODULE_7__ = __webpack_require__(47);
+/* harmony import */ var _interceptor__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(46);
+/* harmony import */ var p_timeout__WEBPACK_IMPORTED_MODULE_5__ = __webpack_require__(19);
+/* harmony import */ var ky_umd__WEBPACK_IMPORTED_MODULE_6__ = __webpack_require__(44);
+/* harmony import */ var ky_umd__WEBPACK_IMPORTED_MODULE_6___default = /*#__PURE__*/__webpack_require__.n(ky_umd__WEBPACK_IMPORTED_MODULE_6__);
 
 
 
 
-const log = _cozy_minilog__WEBPACK_IMPORTED_MODULE_1___default()('ContentScript')
-_cozy_minilog__WEBPACK_IMPORTED_MODULE_1___default().enable('payfitCCC')
+
+
+
+
+
+const interceptor = new _interceptor__WEBPACK_IMPORTED_MODULE_4__["default"]([
+  {
+    label: 'accountList',
+    method: 'GET',
+    url: 'auth/auth0/accounts',
+    serialization: 'json'
+  },
+  {
+    label: 'personnalInformations',
+    method: 'GET',
+    url: 'https://api.payfit.com/hr/user-settings/personal-information',
+    serialization: 'json',
+    exact: true
+  },
+  {
+    label: 'userInfos',
+    method: 'POST',
+    url: 'https://api.payfit.com/hr/user/info',
+    serialization: 'json',
+    exact: true
+  },
+  {
+    label: 'userSettings',
+    method: 'GET',
+    url: 'https://api.payfit.com/hr/user-settings',
+    serialization: 'json',
+    exact: true
+  },
+  {
+    label: 'filesList',
+    method: 'POST',
+    url: 'https://api.payfit.com/files/files',
+    serialization: 'json',
+    exact: true
+  }
+])
+interceptor.init()
+
+const log = _cozy_minilog__WEBPACK_IMPORTED_MODULE_2___default()('ContentScript')
+_cozy_minilog__WEBPACK_IMPORTED_MODULE_2___default().enable('payfitCCC')
 
 let FORCE_FETCH_ALL = false
 
 const baseUrl = 'https://app.payfit.com/'
+const payslipsUrl = `${baseUrl}payslips/`
 const personalInfosUrl = `${baseUrl}settings/profile`
-
-let personalInfos = []
-let userSettings = []
-let bills = []
-let billsHrefs = []
-
-// We need two types of interceptions, the fetch and the Xhr as requests for personnal informations are done with fetch
-// but the payslips request is done with XMLHttpRequest
-
-const fetchOriginal = window.fetch
-window.fetch = async (...args) => {
-  const response = await fetchOriginal(...args)
-  if (
-    typeof args[0] === 'string' &&
-    args[0] === 'https://api.payfit.com/hr/user-settings/personal-information'
-  ) {
-    await response
-      .clone()
-      .json()
-      .then(body => {
-        personalInfos.push(body)
-        return response
-      })
-      .catch(err => {
-        // eslint-disable-next-line no-console
-        console.log(err)
-        return response
-      })
-  }
-  if (
-    typeof args[0] === 'string' &&
-    args[0] === 'https://api.payfit.com/hr/user-settings'
-  ) {
-    await response
-      .clone()
-      .json()
-      .then(body => {
-        userSettings.push(body)
-        return response
-      })
-      .catch(err => {
-        // eslint-disable-next-line no-console
-        console.log(err)
-        return response
-      })
-  }
-  return response
-}
-
-var openProxied = window.XMLHttpRequest.prototype.open
-window.XMLHttpRequest.prototype.open = function () {
-  var originalResponse = this
-  if (arguments[1] === 'https://api.payfit.com/files/files') {
-    originalResponse.addEventListener('readystatechange', function () {
-      if (originalResponse.readyState === 4) {
-        const jsonBills = JSON.parse(originalResponse.responseText)
-        bills.push(jsonBills)
-      }
-    })
-    return openProxied.apply(this, [].slice.call(arguments))
-  }
-  if (
-    typeof arguments[1] === 'string' &&
-    arguments[1].includes('/presigned-url?attachment=1')
-  ) {
-    originalResponse.addEventListener('readystatechange', function () {
-      if (originalResponse.readyState === 4) {
-        const jsonBillHref = JSON.parse(originalResponse.responseText).url
-        billsHrefs.push(jsonBillHref)
-      }
-    })
-    return openProxied.apply(this, [].slice.call(arguments))
-  } else {
-    return openProxied.apply(this, [].slice.call(arguments))
-  }
-}
 
 const burgerButtonSVGSelector =
   '[d="M2 15.5v2h20v-2H2zm0-5v2h20v-2H2zm0-5v2h20v-2H2z"]'
 
 class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTED_MODULE_0__.ContentScript {
+  async init(options) {
+    await super.init(options)
+    interceptor.on('response', response => {
+      this.bridge.emit('workerEvent', {
+        event: 'interceptedResponse',
+        payload: response
+      })
+    })
+  }
+  waitForInterception(label, options = {}) {
+    const timeout = options?.timeout ?? 30000
+    const interceptionPromise = new Promise(resolve => {
+      const listener = ({ event, payload }) => {
+        if (event === 'interceptedResponse' && payload.label === label) {
+          this.bridge.removeEventListener('workerEvent', listener)
+          resolve(payload)
+        }
+      }
+      this.bridge.addEventListener('workerEvent', listener)
+    })
+
+    return (0,p_timeout__WEBPACK_IMPORTED_MODULE_5__["default"])(interceptionPromise, {
+      milliseconds: timeout,
+      message: `Timed out after waiting ${timeout}ms for interception of ${label}`
+    })
+  }
   addSubmitButtonListener() {
     const formElement = document.querySelector('form')
     const passwordButton = document.querySelector('._button-login-password')
@@ -8387,45 +8577,40 @@ class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTE
   }
 
   async ensureAuthenticated({ account }) {
-    try {
-      this.log('info', '🤖 ensureAuthenticated')
-      this.bridge.addEventListener('workerEvent', this.onWorkerEvent.bind(this))
-      if (!account) {
-        await this.ensureNotAuthenticated()
-      }
-      if (!(await this.isElementInWorker('#username'))) {
-        await this.navigateToLoginForm()
-      }
-      const authenticated = await this.runInWorker('checkAuthenticated')
-      if (!authenticated) {
-        this.log('info', 'Not authenticated')
-        const credentials = await this.getCredentials()
-        if (credentials) {
-          try {
-            await this.autoLogin(credentials)
-            this.log('info', 'autoLogin succesful')
-          } catch (err) {
-            this.log(
-              'info',
-              'Something went wrong with autoLogin: ' + err.message
-            )
-            await this.showLoginFormAndWaitForAuthentication()
-          }
-        } else {
+    this.log('info', '🤖 ensureAuthenticated')
+    this.bridge.addEventListener('workerEvent', this.onWorkerEvent.bind(this))
+    if (!account) {
+      await this.ensureNotAuthenticated()
+    }
+    if (!(await this.isElementInWorker('#username'))) {
+      await this.navigateToLoginForm()
+    }
+    const authenticated = await this.runInWorker('checkAuthenticated')
+    if (!authenticated) {
+      this.log('info', 'Not authenticated')
+      const credentials = await this.getCredentials()
+      if (credentials) {
+        try {
+          await this.autoLogin(credentials)
+          this.log('info', 'autoLogin succesful')
+        } catch (err) {
+          this.log(
+            'info',
+            'Something went wrong with autoLogin: ' + err.message
+          )
           await this.showLoginFormAndWaitForAuthentication()
         }
+      } else {
+        await this.showLoginFormAndWaitForAuthentication()
       }
-      if (await this.isElementInWorker('#code')) {
-        this.log('info', 'Waiting for 2FA ...')
-        this.unblockWorkerInteractions()
-        await this.show2FAFormAndWaitForInput()
-      }
-      this.unblockWorkerInteractions()
-      return true
-    } catch (err) {
-      this.log('error', `❌ ensureAuthenticated error message : ${err.message}`)
-      throw err
     }
+    if (await this.isElementInWorker('#code')) {
+      this.log('info', 'Waiting for 2FA ...')
+      this.unblockWorkerInteractions()
+      await this.show2FAFormAndWaitForInput()
+    }
+    this.unblockWorkerInteractions()
+    return true
   }
 
   async ensureNotAuthenticated() {
@@ -8434,37 +8619,15 @@ class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTE
     const authenticated = await this.runInWorker('checkAuthenticated')
     if (!authenticated) {
       return true
-    } else {
-      this.log('info', 'Already logged in, logging out')
-      if (await this.isElementInWorker('button[data-testid="accountButton"]')) {
-        this.log(
-          'info',
-          'ensureNotAuthenticated - Account selection page detected, navigating to any contract to access logout button'
-        )
-        await this.clickAndWait(
-          'button[data-testid="accountButton"]',
-          burgerButtonSVGSelector
-        )
-      }
-      await this.waitForElementInWorker(burgerButtonSVGSelector)
-      const burgerButtonClass = await this.evaluateInWorker(
-        function getBurgerButtonClass(selector) {
-          return document
-            .querySelector(selector)
-            .closest('button')
-            .getAttribute('class')
-        },
-        [burgerButtonSVGSelector]
-      )
-      await this.clickAndWait(
-        `[class="${burgerButtonClass}"]`,
-        'button[data-testid="account-switcher-button"]'
-      )
-      await this.runInWorker('clickAccountSwitcher')
-      await this.runInWorker('selectMenuItem', 'logout')
-      await this.waitForElementInWorker('#username')
-      this.log('info', 'Logout OK')
     }
+
+    this.log('info', 'Already logged in, logging out')
+    await this.showAccountSwitchPage()
+    await this.runInWorker('click', 'button > strong', {
+      includesText: 'Déconnexion'
+    })
+    await this.waitForElementInWorker('#username')
+    this.log('info', 'Logout OK')
   }
 
   async checkAuthenticated() {
@@ -8528,348 +8691,187 @@ class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTE
     ])
   }
 
+  async showAccountSwitchPage() {
+    // force the account choice page
+    await this.evaluateInWorker(() => window.localStorage.clear())
+    await this.goto(baseUrl)
+    await this.evaluateInWorker(() => window.location.reload()) // refresh the current page after localStorage update
+    const accountList = await this.waitForInterception('accountList')
+    return accountList
+  }
+
   async getUserDataFromWebsite() {
-    try {
-      this.log('info', '🤖 getUserDataFromWebsite')
-      if (await this.isElementInWorker('button[data-testid="accountButton"]')) {
-        await this.runInWorker('selectClosestToDateContract')
-        this.log('info', `Found ${this.store.numberOfContracts} contracts`)
-      }
-      await Promise.all([
-        this.waitForElementInWorker(burgerButtonSVGSelector),
-        this.waitForElementInWorker('div[direction="row"]  span')
-      ])
-      this.store.profilButtonClass = await this.runInWorker(
-        'getProfilButtonClass'
-      )
-      await this.clickAndWait(
-        `button[class="${this.store.profilButtonClass}"]`,
-        'span[id]'
-      )
-      await this.runInWorker('getContractInfos')
-      await this.goto(personalInfosUrl)
-      await this.waitForElementInWorker(
-        'button[data-testid="changePersonalInformationButton"]'
-      )
-      await this.runInWorkerUntilTrue({
-        method: 'checkInterception',
-        args: [{ type: 'identity' }]
-      })
-      await this.runInWorker('getIdentity')
-      if (this.store.userIdentity.email[0]?.address) {
-        return {
-          sourceAccountIdentifier: this.store.userIdentity.email[0].address
-        }
-      } else {
-        throw new Error('No email found for identity')
-      }
-    } catch (err) {
-      this.log(
-        'error',
-        `❌ getUserDataFromWebsite error message : ${err.message}`
-      )
-      throw err
+    this.log('info', '🤖 getUserDataFromWebsite')
+
+    const accountList = await this.showAccountSwitchPage()
+    this.store.accountList = accountList.response
+
+    // find the user email in store or saved credentials
+    const sourceAccountIdentifier =
+      this.store?.userCredentials?.email || (await this.getCredentials())?.email
+    if (!sourceAccountIdentifier) {
+      throw new Error('Could not find any sourceAccountIdentifier')
+    }
+
+    return {
+      sourceAccountIdentifier
     }
   }
 
   async fetch(context) {
-    try {
-      this.log('info', '🤖 fetch')
-      const { trigger } = context
-      // force fetch all data (the long way) when last trigger execution is older than 30 days
-      // or when the last job was an error
-      const isLastJobError =
-        trigger.current_state?.last_failure >
-        trigger.current_state?.last_success
-      const hasLastExecution = Boolean(trigger.current_state?.last_execution)
-      const distanceInDays = getDateDistanceInDays(
-        trigger.current_state?.last_execution
+    this.log('info', '🤖 fetch')
+    if (this.store && this.store.userCredentials) {
+      this.log('info', 'Saving credentials ...')
+      await this.saveCredentials(this.store.userCredentials)
+    }
+
+    const { trigger } = context
+    // force fetch all data (the long way) when last trigger execution is older than 30 days
+    // or when the last job was an error
+    const isLastJobError =
+      trigger.current_state?.last_failure > trigger.current_state?.last_success
+    const hasLastExecution = Boolean(trigger.current_state?.last_execution)
+    const distanceInDays = getDateDistanceInDays(
+      trigger.current_state?.last_execution
+    )
+    if (distanceInDays >= 30 || !hasLastExecution || isLastJobError) {
+      this.log('info', `isLastJobError: ${isLastJobError}`)
+      this.log('info', `distanceInDays: ${distanceInDays}`)
+      this.log('info', `hasLastExecution: ${hasLastExecution}`)
+      FORCE_FETCH_ALL = true
+    }
+    this.log('info', `FORCE_FETCH_ALL: ${FORCE_FETCH_ALL}`)
+
+    // sort accountList to have the latest contract first
+    const getContractStart = account =>
+      account.companyInfo.loginDescription
+        .split(':')
+        .pop()
+        .trim()
+        .split('/')
+        .reverse()
+        .join('/')
+    this.store.accountList.sort(
+      (a, b) => (getContractStart(a) < getContractStart(b) ? 1 : -1) // with fetch latest contract first
+    )
+
+    if (!FORCE_FETCH_ALL) {
+      // only fetch the last contract in date
+      this.store.accountList = this.store.accountList.slice(0, 1)
+    }
+    for (const account of this.store.accountList) {
+      // select this account as the current account
+      await this.evaluateInWorker(
+        account => window.localStorage.setItem('accountChoice', account),
+        JSON.stringify(account)
       )
-      if (distanceInDays >= 30 || !hasLastExecution || isLastJobError) {
-        this.log('debug', `isLastJobError: ${isLastJobError}`)
-        this.log('debug', `distanceInDays: ${distanceInDays}`)
-        this.log('debug', `hasLastExecution: ${hasLastExecution}`)
-        FORCE_FETCH_ALL = true
-      }
-      if (this.store && this.store.userCredentials) {
-        this.log('info', 'Saving credentials ...')
-        await this.saveCredentials(this.store.userCredentials)
-      }
-      if (this.store.userIdentity) {
-        this.log('info', 'Saving identity ...')
-        await this.saveIdentity({ contact: this.store.userIdentity })
-      }
-      let foundNumberOfContracts
-      if (!this.store.numberOfContracts || !FORCE_FETCH_ALL) {
-        foundNumberOfContracts = 1
-      } else {
-        foundNumberOfContracts = this.store.numberOfContracts
-      }
-      for (let i = 0; i < foundNumberOfContracts; i++) {
-        this.log(
-          'info',
-          `Fetching ${i + 1}/${foundNumberOfContracts} contract ...`
-        )
-        await this.fetchPayslips({
-          context,
-          fetchedDates: this.store.fetchedDates,
-          i,
-          FORCE_FETCH_ALL
-        })
-        if (foundNumberOfContracts > 1) {
-          await this.navigateToNextContract()
-        }
-      }
-    } catch (err) {
-      this.log('error', `❌ fetch error message : ${err.message}`)
-      throw err
-    }
-  }
-
-  async getProfilButtonClass() {
-    this.log('info', '📍️ getProfilButtonClass starts')
-    const elements = document.querySelectorAll('div[direction="row"]  span')
-    for (const element of elements) {
-      if (element.textContent.match(/[A-Z]{2}/g)) {
-        return element.closest('button').getAttribute('class')
-      }
-    }
-  }
-
-  async fetchPayslips({ context, fetchedDatesArray, i, FORCE_FETCH_ALL }) {
-    this.log('info', '📍️ fetchPayslips starts')
-    await this.navigateToPayrollsPage()
-    await this.runInWorkerUntilTrue({
-      method: 'getPayslipsInfos',
-      args: [FORCE_FETCH_ALL]
-    })
-    const alreadyFetchedIds = []
-    const allPayslipsIds = this.store.contractBillsInfos.payslipsIds
-    // Limit here is needed because of download urls' expirations.
-    // We dispose of a 1 min countdown to use these urls after clicking.
-    // It's ensuring a good execution for slow connections too.
-    const limit = 10
-    const totalIdsLength = allPayslipsIds.length
-    this.log('info', `totalIdsLength : ${totalIdsLength}`)
-    for (let j = totalIdsLength; j > 0; j -= limit) {
-      const group = Array.from(allPayslipsIds).slice(Math.max(j - limit, 0), j)
-      const fetchedIds = await this.runInWorker('showAndFetchPayslipsBatch', {
-        limit,
-        group
-      })
-      alreadyFetchedIds.push(...fetchedIds)
-      await this.runInWorkerUntilTrue({
-        method: 'checkInterception',
-        args: [{ type: 'bills', number: fetchedIds.length }]
-      })
-      const billsBatch = await this.runInWorker('getBills')
-      let subPath = await this.determineSubPath(fetchedDatesArray, i)
-      await this.saveFiles(billsBatch, {
+      await this.goto(baseUrl)
+      const userInfos = await this.waitForInterception('userInfos')
+      await this.fetchPayslips({
         context,
-        fileIdAttributes: ['vendorId'],
-        contentType: 'application/pdf',
-        qualificationLabel: 'pay_sheet',
-        subPath
+        account,
+        userInfos,
+        FORCE_FETCH_ALL
       })
     }
-    await this.runInWorker('emptyInterceptionsArrays')
-  }
 
-  async showAndFetchPayslipsBatch(options) {
-    this.log('info', '📍️ showAndFetchPayslipsBatch starts')
-    const payslipsIds = []
-    await (0,p_wait_for__WEBPACK_IMPORTED_MODULE_2__["default"])(
-      () => {
-        const foundElements = document.querySelectorAll(
-          'div[data-testid*="payslip-"] > div'
-        )
-        const foundIds = Array.from(foundElements).map(element =>
-          element.parentNode.getAttribute('data-testid')
-        )
-        if (foundIds.some(entry => entry.includes(options.group[0]))) {
-          this.log('info', 'found first id in html')
-          return true
-        } else {
-          this.log('info', 'found nothing, scrolling')
-          // Here we are force to scroll because this list creates and deletes elements according to scrolling position.
-          // To ensure we scroll over every single payslip, we're comparing the elements' ids in view with the ones we're looking for.
-          const beforeLast = document.querySelector(
-            '.ReactVirtualized__Grid__innerScrollContainer > div:nth-last-child(5)'
-          )
-          beforeLast.scrollIntoView({ behavior: 'instant', block: 'end' })
-          return false
-        }
-      },
-      {
-        interval: 1000,
-        timeout: 30 * 1000
-      }
-    )
-    const neededPayslips = this.determinePayslipsToFetch(options.group)
-    const clickedPayslips = this.clickNeededPayslips(neededPayslips)
-    payslipsIds.push(...clickedPayslips)
-    this.log('info', 'No need to scroll yet')
-    return payslipsIds
-  }
-
-  async getPayslipsInfos(FORCE_FETCH_ALL) {
-    this.log('info', '📍️ getPayslipsInfos starts')
-    const data = {
-      loopNumber: 0,
-      numberOfClickedElements: 0,
-      foundElementsLength: 0,
-      payslipsIds: []
+    if (FORCE_FETCH_ALL) {
+      // save identity only when FORCE_FETCH_ALL === true to favor fast execution as much as possible
+      const [userSettings, personnalInformations] = await Promise.all([
+        this.waitForInterception('userSettings'),
+        this.waitForInterception('personnalInformations'),
+        this.goto(personalInfosUrl)
+      ])
+      const parsedIdentity = this.parseIdentity({
+        userSettings,
+        personnalInformations
+      })
+      await this.saveIdentity({ contact: parsedIdentity })
     }
-    const fetchAll = FORCE_FETCH_ALL
-    await (0,p_wait_for__WEBPACK_IMPORTED_MODULE_2__["default"])(
-      () => {
-        let numberToFetch
-        const billsElements = document.querySelectorAll(
-          'div[data-testid*="payslip-"] > div'
-        )
-        if (!fetchAll) {
-          // If we don't need to fetch everything, we're limiting the fetching at 3 payslips
-          // Ensuring enough cover for in-between situtations such has lastExecution at the end of a month with no bill to fetch yet for this month
-          this.log('info', 'fetchAll is false, fetching the last 3 payslips')
-          numberToFetch = 3
-        } else {
-          this.log('info', 'Fetching all payslips')
-          numberToFetch = billsElements.length
+  }
+
+  async downloadFileInWorker(entry) {
+    // overload ContentScript.downloadFileInWorker to be able to get the token and to run double
+    // fetch request necessary to finally get the file
+    this.log('debug', 'downloading file in worker')
+
+    const token = window.payFitKonnectorToken
+
+    const nextUrlDocument = await ky_umd__WEBPACK_IMPORTED_MODULE_6___default().get(entry.fileurl, {
+        headers: {
+          Authorization: 'Bearer ' + token
         }
-        for (let i = 0; i < numberToFetch; i++) {
-          const elementId =
-            billsElements[i].parentNode.getAttribute('data-testid')
-          if (data.payslipsIds.includes(elementId)) {
-            data.loopNumber++
-            continue
-          }
-          data.payslipsIds.push(elementId)
-          data.loopNumber++
+      })
+      .json()
+
+    const blob = await ky_umd__WEBPACK_IMPORTED_MODULE_6___default().get('https://api.payfit.com/files' + nextUrlDocument.url, {
+        headers: {
+          Authorization: 'Bearer ' + token
         }
-        data.foundElementsLength =
-          data.foundElementsLength + billsElements.length
-        let isRealLast = false
-        const maxHeight = parseInt(
-          document.querySelector(
-            '.ReactVirtualized__Grid__innerScrollContainer'
-          ).style.maxHeight,
-          10
-        )
-        const lastElem = document.querySelector(
-          '.ReactVirtualized__Grid__innerScrollContainer > div:last-child'
-        )
-        const lastElemBottom =
-          parseInt(lastElem.style.top, 10) + parseInt(lastElem.style.height, 10)
-        lastElem.scrollIntoView({ behavior: 'instant', block: 'start' })
-        isRealLast = lastElemBottom === maxHeight
-        if (isRealLast) {
-          return true
-        } else {
-          return false
-        }
-      },
-      {
-        interval: 1000,
-        timeout: 30 * 1000
-      }
-    )
-    await this.sendToPilot({ contractBillsInfos: data })
-    return true
+      })
+      .blob()
+    entry.dataUri = await (0,cozy_clisk_dist_contentscript_utils__WEBPACK_IMPORTED_MODULE_1__.blobToBase64)(blob)
+    return entry.dataUri
   }
 
-  emptyInterceptionsArrays() {
-    this.log('info', '📍️ emptyInterceptionsArrays starts')
-    bills.length = 0
-    billsHrefs.length = 0
-  }
-
-  determineSubPath(fetchedDatesArray, i) {
-    this.log('info', '📍️ determineSubPath starts')
-    let subPath = `${this.store.companyName} - ${this.store.contractsInfos[0].type}`
-    if (!fetchedDatesArray) {
-      subPath = `${subPath} - ${this.store.contractsInfos[0].startDate}`
-    } else {
-      subPath = `${subPath} - ${fetchedDatesArray[i]}`
-    }
-    if (this.store.contractsInfos[0].endDate) {
-      subPath = `${subPath} → ${this.store.contractsInfos[0].endDate}`
-    }
-    return subPath
-  }
-
-  async navigateToPayrollsPage() {
-    this.log('info', '📍️ navigateToPayrollsPage starts')
-    await this.waitForElementInWorker(burgerButtonSVGSelector)
-    const burgerButtonClass = await this.evaluateInWorker(
-      function getBurgerButtonClass(selector) {
-        return document
-          .querySelector(selector)
-          .closest('button')
-          .getAttribute('class')
-      },
-      [burgerButtonSVGSelector]
-    )
-    await this.clickAndWait(
-      `[class="${burgerButtonClass}"]`,
-      'a[href="/payslips"]'
-    )
-    await this.clickAndWait(
-      'a[href="/payslips"]',
-      'div[data-testid*="payslip-"]'
-    )
-    this.log('info', '📍️ navigateToPayrollsPage ends')
-  }
-
-  async navigateToNextContract() {
-    this.log('info', '📍️ navigateToNextContract starts')
-    const burgerButtonClass = await this.evaluateInWorker(
-      function getBurgerButtonClass(selector) {
-        return document
-          .querySelector(selector)
-          .closest('button')
-          .getAttribute('class')
-      },
-      [burgerButtonSVGSelector]
-    )
-    await this.clickAndWait(
-      `[class="${burgerButtonClass}"]`,
-      'button[data-testid="account-switcher-button"]'
-    )
-    await this.runInWorker('clickAccountSwitcher')
-    await this.waitForElementInWorker('div[role="menuitem"]')
-    await this.runInWorker('selectMenuItem', 'changeAccount')
-    await this.waitForElementInWorker('button[data-testid="accountButton"]')
-    const datesArray = this.store.fetchedDates
-    const numberOfContracts = this.store.numberOfContracts
-    const lastContract = await this.runInWorker(
-      'determineContractToSelect',
-      datesArray,
-      numberOfContracts
-    )
-    if (lastContract) {
-      await this.runInWorker('selectClosestToDateContract')
-      await this.waitForElementInWorker(
-        `button[class="${this.store.profilButtonClass}"]`
-      )
-      return true
-    }
-    await Promise.all([
-      this.waitForElementInWorker(burgerButtonSVGSelector),
-      this.waitForElementInWorker('div[direction="row"]  span')
+  async fetchPayslips({ context, account, userInfos, FORCE_FETCH_ALL }) {
+    this.log('info', '📍️ fetchPayslips starts')
+    const [filesList] = await Promise.all([
+      this.waitForInterception('filesList'),
+      this.goto(payslipsUrl)
     ])
-    this.store.profilButtonClass = await this.runInWorker(
-      'getProfilButtonClass'
+    const token = filesList.requestHeaders.Authorization.split(' ').pop()
+    await this.evaluateInWorker(
+      token => (window.payFitKonnectorToken = token),
+      token
     )
-    await this.clickAndWait(
-      `button[class="${this.store.profilButtonClass}"]`,
-      'span[id]'
-    )
-    await this.runInWorker('getContractInfos')
+    const companyName = account.companyInfo.name
+    const fileDocuments = filesList.response
+      .sort((a, b) => (a.absoluteMonth < b.absoluteMonth ? 1 : -1)) // will fetch newest payslips first
+      .map(fileDocument => {
+        const vendorId = fileDocument.id
+        const date = getDateFromAbsoluteMonth(fileDocument.absoluteMonth)
+        const filename = `${companyName}_${(0,date_fns__WEBPACK_IMPORTED_MODULE_7__["default"])(
+          date,
+          'yyyy_MM'
+        )}_${vendorId.slice(-5)}.pdf`
+        return {
+          date: (0,date_fns__WEBPACK_IMPORTED_MODULE_7__["default"])(date, 'yyyy-MM-dd'),
+          vendorId: fileDocument.id,
+          vendorRef: vendorId,
+          companyName,
+          filename,
+          recurrence: 'monthly',
+          fileurl: `https://api.payfit.com/files/file/${fileDocument.id}/presigned-url?attachment=1`,
+          fileAttributes: {
+            metadata: {
+              contentAuthor: 'payfit.com',
+              issueDate: new Date(fileDocument.createdAt),
+              carbonCopy: true
+            }
+          }
+        }
+      })
+
+    const subPath = `${companyName} - ${
+      userInfos.response.contractName
+    } - ${userInfos.response.contractStartDate.split('/').reverse().join('-')}`
+    // only select the 3 last documents when FORCE_FETCH_ALL is false
+    const selectedDocuments = FORCE_FETCH_ALL
+      ? fileDocuments
+      : fileDocuments.slice(0, 3)
+    await this.saveFiles(selectedDocuments, {
+      context,
+      fileIdAttributes: ['vendorId'],
+      contentType: 'application/pdf',
+      qualificationLabel: 'pay_sheet',
+      subPath
+    })
   }
 
   async waitFor2FA() {
     this.log('info', 'waitFor2FA starts')
-    await (0,p_wait_for__WEBPACK_IMPORTED_MODULE_2__["default"])(
+    await (0,p_wait_for__WEBPACK_IMPORTED_MODULE_3__["default"])(
       () => {
         if (document.querySelector(burgerButtonSVGSelector)) {
           this.log('info', '2FA OK - Land on home')
@@ -8890,141 +8892,11 @@ class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTE
     return true
   }
 
-  async selectClosestToDateContract() {
-    this.log('info', 'selectClosestToDateContract starts')
-    const numberOfContracts = this.getNumberOfContracts()
-    this.log('info', 'Sending number of contracts to Pilot')
-    const contractElements = document.querySelectorAll(
-      'button[data-testid="accountButton"]'
-    )
-    const closestDate = await this.determineClosestToDate(contractElements)
-    await this.sendToPilot({
-      numberOfContracts,
-      fetchedDates: [closestDate.date]
-    })
-    contractElements[closestDate.index].click()
-  }
-
-  determineClosestToDate(elements) {
-    this.log('info', '📍️ determineClosestToDate starts')
-    const foundDates = []
-    for (let i = 0; i < elements.length; i++) {
-      const foundDate = this.getContractDate(elements[i])
-      foundDates.push(foundDate)
-    }
-    const actualDate = new Date()
-    const diffMin = foundDates.reduce(
-      (min, date, index) => {
-        const dateCourante = new Date(date)
-        const diff = Math.abs(dateCourante - actualDate)
-        return diff < min.diff ? { diff, index, date } : min
-      },
-      { diff: Infinity, index: -1 }
-    )
-    return diffMin
-  }
-
-  getNumberOfContracts() {
-    this.log('info', 'getNumberOfContracts starts')
-    const numberOfContracts = document.querySelectorAll(
-      'button[data-testid="accountButton"]'
-    ).length
-    return numberOfContracts
-  }
-
-  async getContractInfos() {
-    this.log('info', '📍️ getContractInfos starts')
-    const allContractsInfos = []
-    const spansWithId = document.querySelectorAll('span[id]')
-    const spansTextcontent = []
-    await (0,p_wait_for__WEBPACK_IMPORTED_MODULE_2__["default"])(
-      () => {
-        spansWithId.forEach(span => {
-          const siblings = Array.from(span.parentNode.children)
-          siblings.forEach(sibling => {
-            const divsWithDirectionRow = Array.from(
-              sibling.querySelectorAll('div[direction="row"]')
-            )
-            divsWithDirectionRow.forEach(element => {
-              spansTextcontent.push(element.textContent)
-            })
-          })
-        })
-        // We could find at the moment 4 elements maximum.
-        // As we just need the first two, if the length is equal 2 we carry on
-        if (spansTextcontent.length >= 2) {
-          return true
-        } else {
-          this.log('info', 'ContractInfos are not fully loaded, waiting ...')
-          // If infos are not fully loaded, we're emptying the array
-          // so it does not accumulate any loaded info on every lap
-          spansTextcontent.length = 0
-          return false
-        }
-      },
-      {
-        interval: 1000,
-        timeout: 30 * 1000
-      }
-    )
-    let startDate
-    let endDate
-    let type
-    spansTextcontent.forEach(string => {
-      if (string.includes('embauche')) {
-        startDate = string.split('embauche')[1].replace(/\//g, '-')
-      } else if (string.includes('fin')) {
-        endDate = string.split('fin')[1].replace(/\//g, '-')
-      } else if (string.includes('Type')) {
-        type = string.split('contrat')[1]
-      } else {
-        this.log('info', 'includes nothing')
-      }
-    })
-    const contract = {
-      startDate,
-      type
-    }
-    if (endDate) {
-      contract.endDate = endDate
-    }
-    allContractsInfos.push(contract)
-    await this.sendToPilot({ contractsInfos: allContractsInfos })
-  }
-
-  async checkInterception(args) {
-    this.log('info', `📍️ checkInterception for ${args.type} starts`)
-    await (0,p_wait_for__WEBPACK_IMPORTED_MODULE_2__["default"])(
-      () => {
-        if (args.type === 'identity') {
-          if (personalInfos.length > 0 && userSettings.length > 0) {
-            this.log('info', 'personalInfos interception OK')
-            return true
-          }
-          return false
-        }
-        if (args.type === 'bills') {
-          this.log('info', `📍️ checkInterception for ${args.number} bills`)
-          if (bills.length > 0 && billsHrefs.length === args.number) {
-            this.log('info', 'bills interception OK')
-            return true
-          }
-          return false
-        }
-      },
-      {
-        interval: 1000,
-        timeout: 30 * 1000
-      }
-    )
-    return true
-  }
-
-  async getIdentity() {
-    this.log('info', '📍️ getIdentity starts')
-    const infos = personalInfos[0].variables
-    const emails = userSettings[0].userEmails
-    const userIdentity = {
+  parseIdentity({ userSettings, personnalInformations }) {
+    this.log('info', '📍️ parseIdentity starts')
+    const infos = personnalInformations.response.variables
+    const emails = userSettings.response.userEmails
+    const identity = {
       name: {
         givenName: infos.firstName,
         familyName: infos.birthName
@@ -9035,25 +8907,25 @@ class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTE
     }
     if (infos.phoneNumber) {
       this.log('info', 'phoneNumber is defined, saving it')
-      userIdentity.phone.push({
+      identity.phone.push({
         number: infos.phoneNumber,
         type: this.determinePhoneType(infos.phoneNumber)
       })
     } else {
       this.log(
         'info',
-        'phoneNumber is null, deleting phone entry from userIdentity'
+        'phoneNumber is null, deleting phone entry from identity'
       )
-      delete userIdentity.phone
+      delete identity.phone
     }
     const foundAddress = this.getAddress(infos)
     for (const email of emails) {
       if (email.primary) {
-        userIdentity.email.push({ address: email.address })
+        identity.email.push({ address: email.address })
       }
     }
-    userIdentity.address.push(foundAddress)
-    await this.sendToPilot({ userIdentity })
+    identity.address.push(foundAddress)
+    return identity
   }
 
   determinePhoneType(phoneNumber) {
@@ -9101,191 +8973,6 @@ class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTE
 
     return address
   }
-
-  async getBills() {
-    this.log('info', '📍️ getBills starts')
-    const billsToMatch = []
-    bills[0].forEach(bill => {
-      let matchId = billsHrefs.some(entry => entry.includes(bill.id))
-      if (matchId) {
-        billsToMatch.push(bill)
-      }
-    })
-    const billsInfos = billsToMatch
-    const computedBills = []
-    const accountChoice = JSON.parse(
-      window.localStorage.getItem('accountChoice')
-    )
-    const companyName = accountChoice.companyInfo.name
-    await this.sendToPilot({ companyName })
-    for (const bill of billsInfos) {
-      const billId = bill.id
-      const issueDate = bill.createdAt
-      const date = getDateFromAbsoluteMonth(bill.absoluteMonth)
-      const filename = `${companyName}_${(0,date_fns__WEBPACK_IMPORTED_MODULE_3__["default"])(
-        date,
-        'yyyy_MM'
-      )}_${billId.slice(-5)}.pdf`
-      const computedBill = {
-        date: (0,date_fns__WEBPACK_IMPORTED_MODULE_3__["default"])(date, 'yyyy-MM-dd'),
-        filename,
-        // This is supposed to be added to the data  by the "processPdf" function in saveBills opt.
-        // after scraping the associated PDF. But for now, this feature is not handled by cozy-clisk.
-        // For the saveBills to work properly we need to add an amount and a vendor to the bill at least
-        // amount: 2000,
-        // vendor: 'payfit.fr',
-        companyName,
-        // We keep both vendorID & vendorRef for historical purposes
-        vendorId: billId,
-        vendorRef: billId,
-        recurrence: 'monthly',
-        fileAttributes: {
-          metadata: {
-            contentAuthor: 'payfit.com',
-            issueDate: new Date(issueDate),
-            carbonCopy: true
-          }
-        }
-      }
-      const downloadHref = await this.getDownloadHref(billId)
-      computedBill.fileurl = `https://api.payfit.com/files${downloadHref}`
-      computedBills.push(computedBill)
-    }
-    billsHrefs.length = 0
-    return computedBills
-  }
-
-  async getDownloadHref(id) {
-    this.log('info', '📍️ getDownloadHref starts')
-    for (let i = 0; i < billsHrefs.length; i++) {
-      if (billsHrefs[i].includes(id)) {
-        return billsHrefs[i]
-      }
-    }
-    throw new Error('No href found with this is, check the code')
-
-    // Keeping this code around if we find a way to get the Bearer token later
-    // const urlResp = await this.window
-    //   .fetch(
-    //     `https://api.payfit.com/files/file/${id}/presigned-url?attachment=1`
-    //   )
-    //   .then(response => {
-    //     if (!response.ok) {
-    //       throw new Error('Something went wrong when fetching a download URL')
-    //     }
-    //     return response.json()
-    //   })
-    // return urlResp.url
-  }
-
-  async determineContractToSelect(fetchedDatesArray, numberOfContracts) {
-    this.log('info', '📍️ determineContractToSelect starts')
-    const contractButtons = document.querySelectorAll(
-      'button[data-testid="accountButton"]'
-    )
-    const datesArray = [...fetchedDatesArray]
-    let numberOfFetchedContracts = 0
-    for (let i = 0; i < contractButtons.length; i++) {
-      const contractDate = this.getContractDate(contractButtons[i])
-      const index = fetchedDatesArray.findIndex(
-        element => element === contractDate
-      )
-      if (index === -1) {
-        this.log('info', 'This contract could be fetch')
-        datesArray.push(contractDate)
-        contractButtons[i].click()
-        await this.sendToPilot({ fetchedDates: datesArray })
-        break
-      } else {
-        this.log('info', 'This contract has already been fetched, continue')
-        numberOfFetchedContracts++
-      }
-    }
-    if (numberOfFetchedContracts === numberOfContracts) {
-      this.log('info', 'Last contract fetched, finishing ...')
-      return true
-    }
-    return false
-  }
-
-  getContractDate(contractElement) {
-    this.log('info', '📍️ getContractDate starts')
-    const foundSpan = contractElement.querySelector('h5').nextSibling
-    if (foundSpan.nodeName === 'SPAN') {
-      this.log('info', 'Found contractDate element')
-      return foundSpan.textContent?.split(':')[1].trim()
-    } else {
-      throw new Error(
-        'Something went wrong finding the contractDate element, check the code'
-      )
-    }
-  }
-
-  async selectMenuItem(type) {
-    this.log('info', '📍️ selectMenuItem starts')
-    const wantedType =
-      type === 'logout' ? 'Me déconnecter' : 'Changer de compte'
-    const menuItems = document.querySelectorAll('div[role="menuitem"]')
-    let wantedItemFound = false
-    for (let i = 0; i < menuItems.length; i++) {
-      const optionElement = menuItems[i].querySelector('span')
-      const option = optionElement.textContent
-      if (option === wantedType) {
-        menuItems[i].childNodes[0].click()
-        wantedItemFound = true
-        break
-      }
-    }
-    if (wantedItemFound) {
-      return true
-    } else {
-      throw new Error(
-        `No options matched "${wantedType}" expectations, check the code`
-      )
-    }
-  }
-
-  async clickAccountSwitcher() {
-    this.log('info', '📍️ clickAccountSwitcher starts')
-    const searchedId = document
-      .querySelector('button[data-testid="account-switcher-button"]')
-      .getAttribute('id')
-    const element = document.querySelector(`#${searchedId}`)
-
-    const propsName = Object.keys(element).find(e =>
-      e.startsWith('__reactProps')
-    )
-    element[propsName].onPointerDown(new PointerEvent('click'))
-  }
-
-  determinePayslipsToFetch(group) {
-    this.log('info', '📍️ determinePayslipsToFetch starts')
-    const neededPayslips = []
-    const sectionBillsElements = document.querySelectorAll(
-      'div[data-testid*="payslip-"] > div'
-    )
-    for (const billElement of sectionBillsElements) {
-      const elementId = billElement.parentNode.getAttribute('data-testid')
-      if (group.includes(elementId)) {
-        neededPayslips.push(billElement)
-      }
-    }
-    return neededPayslips
-  }
-
-  clickNeededPayslips(neededPayslips) {
-    this.log('info', '📍️ clickNeededPayslips starts')
-    const payslipsIds = []
-    for (let i = 0; i < neededPayslips.length; i++) {
-      const elementId = neededPayslips[i].parentNode.getAttribute('data-testid')
-      if (payslipsIds.includes(elementId)) {
-        continue
-      }
-      payslipsIds.push(elementId)
-      neededPayslips[i].click()
-    }
-    return payslipsIds
-  }
 }
 
 function getDateFromAbsoluteMonth(absoluteMonth) {
@@ -9295,21 +8982,7 @@ function getDateFromAbsoluteMonth(absoluteMonth) {
 const connector = new PayfitContentScript()
 connector
   .init({
-    additionalExposedMethodsNames: [
-      'waitFor2FA',
-      'selectClosestToDateContract',
-      'getProfilButtonClass',
-      'getIdentity',
-      'checkInterception',
-      'getBills',
-      'determineContractToSelect',
-      'getContractInfos',
-      'emptyInterceptionsArrays',
-      'getPayslipsInfos',
-      'showAndFetchPayslipsBatch',
-      'selectMenuItem',
-      'clickAccountSwitcher'
-    ]
+    additionalExposedMethodsNames: ['waitFor2FA']
   })
   .catch(err => {
     log.warn(err)
