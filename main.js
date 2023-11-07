@@ -8765,9 +8765,9 @@ class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTE
         account => window.localStorage.setItem('accountChoice', account),
         JSON.stringify(account)
       )
-      const userInfos = await this.waitForInterception('userInfos')
       await this.goto(baseUrl)
       await this.evaluateInWorker(() => window.location.reload()) // refresh the current page after localStorage update
+      const userInfos = await this.waitForInterception('userInfos')
       await this.fetchPayslips({
         context,
         account,
