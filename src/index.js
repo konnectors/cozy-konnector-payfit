@@ -266,8 +266,8 @@ class PayfitContentScript extends ContentScript {
     // force the account choice page
     await this.evaluateInWorker(() => window.localStorage.clear())
     await this.goto(baseUrl)
-    await this.evaluateInWorker(() => window.location.reload()) // refresh the current page after localStorage update
     const accountList = await this.waitForInterception('accountList')
+    await this.evaluateInWorker(() => window.location.reload()) // refresh the current page after localStorage update
     return accountList
   }
 
@@ -338,6 +338,7 @@ class PayfitContentScript extends ContentScript {
       )
       await this.goto(baseUrl)
       const userInfos = await this.waitForInterception('userInfos')
+      await this.evaluateInWorker(() => window.location.reload()) // refresh the current page after localStorage update
       await this.fetchPayslips({
         context,
         account,
