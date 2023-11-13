@@ -322,9 +322,11 @@ class PayfitContentScript extends ContentScript {
         .split('/')
         .reverse()
         .join('/')
-    this.store.accountList.sort(
-      (a, b) => (getContractStart(a) < getContractStart(b) ? 1 : -1) // with fetch latest contract first
-    )
+    this.store.accountList
+      .filter(account => account?.account?.userRole !== 'admin') // ignore manager accounts (nothing to fetch)
+      .sort(
+        (a, b) => (getContractStart(a) < getContractStart(b) ? 1 : -1) // with fetch latest contract first
+      )
 
     if (!FORCE_FETCH_ALL) {
       // only fetch the last contract in date
@@ -337,6 +339,7 @@ class PayfitContentScript extends ContentScript {
         JSON.stringify(account)
       )
       await this.goto(baseUrl)
+      await this.evaluateInWorker(() => window.location.reload()) // refresh the current page after localStorage update
       const userInfos = await this.waitForInterception('userInfos')
       await this.evaluateInWorker(() => window.location.reload()) // refresh the current page after localStorage update
       await this.fetchPayslips({
