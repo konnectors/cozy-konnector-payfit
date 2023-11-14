@@ -207,8 +207,12 @@ class PayfitContentScript extends ContentScript {
 
     this.log('info', 'Already logged in, logging out')
     await this.showAccountSwitchPage()
-    await this.runInWorker('click', 'button > strong', {
+    const isDeconnexion = await this.isElementInWorker('button > strong', {
       includesText: 'Déconnexion'
+    })
+    const logoutButtonLabel = isDeconnexion ? 'Déconnexion' : 'Logout'
+    await this.runInWorker('click', 'button > strong', {
+      includesText: logoutButtonLabel
     })
     await this.waitForElementInWorker('#username')
     this.log('info', 'Logout OK')
