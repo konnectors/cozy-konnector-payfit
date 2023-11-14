@@ -1,7 +1,7 @@
 import { ContentScript } from 'cozy-clisk/dist/contentscript'
 import { blobToBase64 } from 'cozy-clisk/dist/contentscript/utils'
 import Minilog from '@cozy/minilog'
-import waitFor from 'p-wait-for'
+import waitFor, { TimeoutError } from 'p-wait-for'
 import { format } from 'date-fns'
 import RequestInterceptor from './interceptor'
 import pTimeout from 'p-timeout'
@@ -278,12 +278,35 @@ class PayfitContentScript extends ContentScript {
     )
   }
 
+  /**
+   * Sometimes, on some devices, the next action will come too soon before the localstorage is
+   * really cleared
+   */
+  async waitForClearedLocalStorage() {
+    await waitFor(
+      () => Object.keys(window.localStorage).length === 0,
+      {
+        interval: 1000,
+        timeout: {
+          milliseconds: 10 * 1000,
+          message: new TimeoutError(
+            `waitForClearedLocalStorage timed out after ${10 * 1000}ms`
+          )
+        }
+      }
+    )
+    return true
+  }
+
   async showAccountSwitchPage() {
     // force the account choice page
     await this.evaluateInWorker(() => window.localStorage.clear())
+    await this.runInWorkerUntilTrue({
+      method: 'waitForClearedLocalStorage'
+    })
     await this.goto(baseUrl)
-    const accountList = await this.waitForInterception('accountList')
     await this.evaluateInWorker(() => window.location.reload()) // refresh the current page after localStorage update
+    const accountList = await this.waitForInterception('accountList')
     return accountList
   }
 
@@ -354,10 +377,13 @@ class PayfitContentScript extends ContentScript {
         account => window.localStorage.setItem('accountChoice', account),
         JSON.stringify(account)
       )
+      await this.runInWorkerUntilTrue({
+        method: 'waitForAccountInLocalStorage',
+        args: [account]
+      })
       await this.goto(baseUrl)
       await this.evaluateInWorker(() => window.location.reload()) // refresh the current page after localStorage update
       const userInfos = await this.waitForInterception('userInfos')
-      await this.evaluateInWorker(() => window.location.reload()) // refresh the current page after localStorage update
       await this.fetchPayslips({
         context,
         account,
@@ -379,6 +405,30 @@ class PayfitContentScript extends ContentScript {
       })
       await this.saveIdentity({ contact: parsedIdentity })
     }
+  }
+
+  async waitForAccountInLocalStorage(expectedAccount) {
+    await waitFor(
+      () => {
+        const account = JSON.parse(
+          window.localStorage.getItem('accountChoice') || '{}'
+        )
+        const result =
+          account?.account?.companyId === expectedAccount?.account?.companyId &&
+          account.account?.employeeId === expectedAccount.account?.employeeId
+        return result
+      },
+      {
+        interval: 1000,
+        timeout: {
+          milliseconds: 10 * 1000,
+          message: new TimeoutError(
+            `waitForAccountInLocalStorage timed out after ${10 * 1000}ms`
+          )
+        }
+      }
+    )
+    return true
   }
 
   async downloadFileInWorker(entry) {
@@ -575,7 +625,11 @@ function getDateFromAbsoluteMonth(absoluteMonth) {
 const connector = new PayfitContentScript()
 connector
   .init({
-    additionalExposedMethodsNames: ['waitFor2FA']
+    additionalExposedMethodsNames: [
+      'waitFor2FA',
+      'waitForClearedLocalStorage',
+      'waitForAccountInLocalStorage'
+    ]
   })
   .catch(err => {
     log.warn(err)
