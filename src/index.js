@@ -137,14 +137,27 @@ class PayfitContentScript extends ContentScript {
     }
   }
 
+  async PromiseRaceWithError(promises, msg) {
+    try {
+      this.log('debug', msg)
+      await Promise.race(promises)
+    } catch (err) {
+      this.log('error', err.message)
+      throw new Error(`${msg} failed to meet conditions`)
+    }
+  }
+
   async navigateToLoginForm() {
     this.log('info', '🤖 navigateToLoginForm')
     await this.goto(baseUrl)
-    await Promise.race([
-      this.waitForElementInWorker('#username'),
-      this.waitForElementInWorker(burgerButtonSVGSelector),
-      this.waitForElementInWorker('button[data-testid="accountButton"]')
-    ])
+    await this.PromiseRaceWithError(
+      [
+        this.waitForElementInWorker('#username'),
+        this.waitForElementInWorker(burgerButtonSVGSelector),
+        this.waitForElementInWorker('button[data-testid="accountButton"]')
+      ],
+      'navigateToLoginForm: waiting for default page load'
+    )
   }
 
   async ensureAuthenticated({ account }) {
@@ -255,11 +268,14 @@ class PayfitContentScript extends ContentScript {
       credentials.password
     )
     await this.runInWorker('click', passwordSubmitButtonSelector)
-    await Promise.race([
-      this.waitForElementInWorker(burgerButtonSVGSelector),
-      this.waitForElementInWorker('#code'),
-      this.waitForElementInWorker('button[data-testid="accountButton"]')
-    ])
+    await this.PromiseRaceWithError(
+      [
+        this.waitForElementInWorker(burgerButtonSVGSelector),
+        this.waitForElementInWorker('#code'),
+        this.waitForElementInWorker('button[data-testid="accountButton"]')
+      ],
+      'autoLogin: waiting for page load after submit'
+    )
   }
 
   async showAccountSwitchPage() {
