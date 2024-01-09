@@ -1,0 +1,88 @@
+{
+  "version": "2.7.0",
+  "name": "Payfit",
+  "type": "konnector",
+  "language": "node",
+  "icon": "icon.svg",
+  "slug": "payfit",
+  "source": "git@github.com:konnectors/cozy-konnector-payfit.git",
+  "editor": "Cozy",
+  "vendor_link": "https://app.payfit.com/",
+  "categories": [
+    "online_services"
+  ],
+  "fields": {},
+  "clientSide": true,
+  "langs": [
+    "fr"
+  ],
+  "folders": [
+    {
+      "defaultDir": "$administrative/$konnector/$account"
+    }
+  ],
+  "permissions": {
+    "bills": {
+      "type": "io.cozy.bills"
+    },
+    "files": {
+      "type": "io.cozy.files"
+    },
+    "carbon_copy": {
+      "type": "io.cozy.certified.carbon_copy"
+    },
+    "identities": {
+      "type": "io.cozy.identities"
+    }
+  },
+  "developer": {
+    "name": "Cozy Cloud",
+    "url": "https://cozy.io"
+  },
+  "locales": {
+    "fr": {
+      "short_description": "Récupère vos fiches de paie Payfit.",
+      "long_description": "Récupère vos fiches de paie Payfit.",
+      "permissions": {
+        "carboncopy": {
+          "description": "Utilisé pour certifier que vos fichiers sont copie conforme avec les documents d'origine"
+        },
+        "bills": {
+          "description": "Utilisé pour sauver les données des fiches de paie"
+        },
+        "files": {
+          "description": "Utilisé pour sauvegarder les fiches de paie"
+        },
+        "identities": {
+          "description": "Utilisé pour sauvegarder l'identité de l'utilisateur"
+        }
+      }
+    },
+    "en": {
+      "short_description": "Fetch a list of Payfit payslips.",
+      "long_description": "Fetch a list of Payfit payslips.",
+      "permissions": {
+        "carboncopy": {
+          "description": "Required for carbon copy documents"
+        },
+        "bills": {
+          "description": "Required to save the bills data"
+        },
+        "files": {
+          "description": "Required to save the bills"
+        },
+        "identities": {
+          "description": "Required to save the user identity"
+        }
+      }
+    }
+  },
+  "qualification_labels": [
+    "pay_sheet"
+  ],
+  "features": [
+    "METADATA_DEDUP",
+    "CARBON_COPY",
+    "DOC_QUALIFICATION_V2"
+  ]
+}
