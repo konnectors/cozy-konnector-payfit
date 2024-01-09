@@ -1,3 +1,4 @@
+/* eslint-disable no-console */
 import { ContentScript } from 'cozy-clisk/dist/contentscript'
 import { blobToBase64 } from 'cozy-clisk/dist/contentscript/utils'
 import Minilog from '@cozy/minilog'
@@ -287,38 +288,47 @@ class PayfitContentScript extends ContentScript {
    * really cleared
    */
   async waitForClearedLocalStorage() {
-    await waitFor(
-      () => Object.keys(window.localStorage).length === 0,
-      {
-        interval: 1000,
-        timeout: {
-          milliseconds: 10 * 1000,
-          message: new TimeoutError(
-            `waitForClearedLocalStorage timed out after ${10 * 1000}ms`
-          )
-        }
+    await waitFor(() => Object.keys(window.localStorage).length === 0, {
+      interval: 1000,
+      timeout: {
+        milliseconds: 10 * 1000,
+        message: new TimeoutError(
+          `waitForClearedLocalStorage timed out after ${10 * 1000}ms`
+        )
       }
-    )
+    })
     return true
   }
 
   async showAccountSwitchPage() {
+    console.log('👅👅👅 showAccountSwitchPage')
     // force the account choice page
     await this.evaluateInWorker(() => window.localStorage.clear())
+    console.log('👅👅👅 after first localStorage.clear')
     await this.runInWorkerUntilTrue({
       method: 'waitForClearedLocalStorage'
     })
+    console.log('👅👅👅 after waitForClearedLocalStorage')
     await this.goto(baseUrl)
+    console.log('👅👅👅 after goto')
     await this.evaluateInWorker(() => window.location.reload()) // refresh the current page after localStorage update
+    console.log('👅👅👅 after reload')
     const accountList = await this.waitForInterception('accountList')
+    console.log('👅👅👅 accountList', JSON.stringify(accountList, null, 2))
     return accountList
   }
 
   async getUserDataFromWebsite() {
     this.log('info', '🤖 getUserDataFromWebsite')
 
+    console.log('👅👅👅 before showAccountSwitchPage')
     const accountList = await this.showAccountSwitchPage()
+    console.log('👅👅👅 after showAccountSwitchPage')
     this.store.accountList = accountList.response
+    console.log(
+      '👅👅👅 this.store.accountList',
+      JSON.stringify(this.store.accountList, null, 2)
+    )
 
     // find the user email in store or saved credentials
     const sourceAccountIdentifier =
@@ -327,6 +337,7 @@ class PayfitContentScript extends ContentScript {
       throw new Error('Could not find any sourceAccountIdentifier')
     }
 
+    this.log('info', '🤖 getUserDataFromWebsite end')
     return {
       sourceAccountIdentifier
     }
@@ -376,7 +387,7 @@ class PayfitContentScript extends ContentScript {
       this.store.accountList = this.store.accountList.slice(0, 1)
     }
     for (const account of this.store.accountList) {
-      // select this account as the current account
+      // set this account as the current account
       await this.evaluateInWorker(
         account => window.localStorage.setItem('accountChoice', account),
         JSON.stringify(account)
@@ -482,6 +493,7 @@ class PayfitContentScript extends ContentScript {
           date,
           'yyyy_MM'
         )}_${vendorId.slice(-5)}.pdf`
+        console.log('👅👅👅 filename', filename)
         return {
           date: format(date, 'yyyy-MM-dd'),
           vendorId: fileDocument.id,
