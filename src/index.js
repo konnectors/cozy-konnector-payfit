@@ -362,10 +362,10 @@ class PayfitContentScript extends ContentScript {
         .split('/')
         .reverse()
         .join('/')
-    this.store.accountList
+    this.store.accountList = this.store.accountList
       .filter(account => account?.account?.userRole !== 'admin') // ignore manager accounts (nothing to fetch)
-      .sort(
-        (a, b) => (getContractStart(a) < getContractStart(b) ? 1 : -1) // with fetch latest contract first
+    this.store.accountList.sort(
+        (a, b) => (getContractStart(a) < getContractStart(b) ? 1 : -1) // will fetch latest contract first
       )
 
     if (!FORCE_FETCH_ALL) {
