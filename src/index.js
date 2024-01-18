@@ -219,7 +219,7 @@ class PayfitContentScript extends ContentScript {
   }
 
   async checkAuthenticated() {
-    this.log('info', '🤖 checkAuthenticated')
+    this.log('debug', '🤖 checkAuthenticated')
     if (document.querySelector('#code')) {
       this.log('info', 'Login OK - 2FA needed, wait for user action')
       return true
@@ -362,11 +362,12 @@ class PayfitContentScript extends ContentScript {
         .split('/')
         .reverse()
         .join('/')
-    this.store.accountList = this.store.accountList
-      .filter(account => account?.account?.userRole !== 'admin') // ignore manager accounts (nothing to fetch)
+    this.store.accountList = this.store.accountList.filter(
+      account => account?.account?.userRole !== 'admin'
+    ) // ignore manager accounts (nothing to fetch)
     this.store.accountList.sort(
-        (a, b) => (getContractStart(a) < getContractStart(b) ? 1 : -1) // will fetch latest contract first
-      )
+      (a, b) => (getContractStart(a) < getContractStart(b) ? 1 : -1) // will fetch latest contract first
+    )
 
     if (!FORCE_FETCH_ALL) {
       // only fetch the last contract in date
