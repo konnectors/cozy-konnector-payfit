@@ -330,14 +330,13 @@ class PayfitContentScript extends ContentScript {
     await this.goto(baseUrl)
     await this.evaluateInWorker(() => window.location.reload()) // refresh the current page after localStorage update
     const accountList = await this.waitForInterception('accountList')
-    return accountList
+    this.store.accountList = accountList.response
   }
 
   async getUserDataFromWebsite() {
     this.log('info', '🤖 getUserDataFromWebsite')
 
-    const accountList = await this.showAccountSwitchPage()
-    this.store.accountList = accountList.response
+    await this.showAccountSwitchPage()
 
     // find the user email in store or saved credentials
     const sourceAccountIdentifier =
