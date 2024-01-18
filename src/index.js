@@ -321,14 +321,18 @@ class PayfitContentScript extends ContentScript {
   }
 
   async showAccountSwitchPage() {
-    // force the account choice page
+    // force the account choice page by clearing the localStorage when needed
+    const currentUrl = await this.evaluateInWorker(() => window.location.href)
     await this.evaluateInWorker(() => window.localStorage.clear())
     await this.runInWorkerUntilTrue({
       method: 'waitForClearedLocalStorage',
       timeout: 30 * 1000
     })
-    await this.goto(baseUrl)
-    await this.evaluateInWorker(() => window.location.reload()) // refresh the current page after localStorage update
+    if (currentUrl !== baseUrl) {
+      await this.goto(baseUrl)
+    } else {
+      await this.evaluateInWorker(() => window.location.reload()) // refresh the current page after localStorage update
+    }
     const accountList = await this.waitForInterception('accountList')
     this.store.accountList = accountList.response
   }
