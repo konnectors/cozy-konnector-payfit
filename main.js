@@ -8893,7 +8893,7 @@ class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTE
   }
 
   async checkAuthenticated() {
-    this.log('info', '🤖 checkAuthenticated')
+    this.log('debug', '🤖 checkAuthenticated')
     if (document.querySelector('#code')) {
       this.log('info', 'Login OK - 2FA needed, wait for user action')
       return true
