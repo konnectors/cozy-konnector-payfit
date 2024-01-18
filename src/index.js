@@ -1,5 +1,6 @@
 import { ContentScript } from 'cozy-clisk/dist/contentscript'
 import { blobToBase64 } from 'cozy-clisk/dist/contentscript/utils'
+import { wrapTimerFactory } from 'cozy-clisk/dist/libs/wrapTimer'
 import Minilog from '@cozy/minilog'
 import waitFor, { TimeoutError } from 'p-wait-for'
 import { format } from 'date-fns'
@@ -58,6 +59,25 @@ const burgerButtonSVGSelector =
   '[d="M2 15.5v2h20v-2H2zm0-5v2h20v-2H2zm0-5v2h20v-2H2z"]'
 
 class PayfitContentScript extends ContentScript {
+  constructor() {
+    super()
+    const logInfo = message => this.log('info', message)
+    const wrapTimerInfo = wrapTimerFactory({ logFn: logInfo })
+
+    this.showAccountSwitchPage = wrapTimerInfo(this, 'showAccountSwitchPage')
+    this.waitForInterception = wrapTimerInfo(this, 'waitForInterception')
+    this.navigateToLoginForm = wrapTimerInfo(this, 'navigateToLoginForm')
+    this.autoLogin = wrapTimerInfo(this, 'autoLogin')
+    this.waitForClearedLocalStorage = wrapTimerInfo(
+      this,
+      'waitForClearedLocalStorage'
+    )
+    this.waitForAccountInLocalStorage = wrapTimerInfo(
+      this,
+      'waitForAccountInLocalStorage'
+    )
+    this.fetchPayslips = wrapTimerInfo(this, 'fetchPayslips')
+  }
   async init(options) {
     await super.init(options)
     interceptor.on('response', response => {
@@ -287,6 +307,7 @@ class PayfitContentScript extends ContentScript {
    * really cleared
    */
   async waitForClearedLocalStorage() {
+    this.log('debug', '🔧 waitForClearedLocalStorage')
     await waitFor(() => Object.keys(window.localStorage).length === 0, {
       interval: 1000,
       timeout: {
@@ -410,6 +431,7 @@ class PayfitContentScript extends ContentScript {
   }
 
   async waitForAccountInLocalStorage(expectedAccount) {
+    this.log('debug', '🔧 waitForAccountInLocalStorage')
     await waitFor(
       () => {
         const account = JSON.parse(
