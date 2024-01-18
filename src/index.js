@@ -287,18 +287,15 @@ class PayfitContentScript extends ContentScript {
    * really cleared
    */
   async waitForClearedLocalStorage() {
-    await waitFor(
-      () => Object.keys(window.localStorage).length === 0,
-      {
-        interval: 1000,
-        timeout: {
-          milliseconds: 10 * 1000,
-          message: new TimeoutError(
-            `waitForClearedLocalStorage timed out after ${10 * 1000}ms`
-          )
-        }
+    await waitFor(() => Object.keys(window.localStorage).length === 0, {
+      interval: 1000,
+      timeout: {
+        milliseconds: 10 * 1000,
+        message: new TimeoutError(
+          `waitForClearedLocalStorage timed out after ${10 * 1000}ms`
+        )
       }
-    )
+    })
     return true
   }
 
