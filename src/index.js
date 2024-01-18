@@ -324,7 +324,8 @@ class PayfitContentScript extends ContentScript {
     // force the account choice page
     await this.evaluateInWorker(() => window.localStorage.clear())
     await this.runInWorkerUntilTrue({
-      method: 'waitForClearedLocalStorage'
+      method: 'waitForClearedLocalStorage',
+      timeout: 30 * 1000
     })
     await this.goto(baseUrl)
     await this.evaluateInWorker(() => window.location.reload()) // refresh the current page after localStorage update
@@ -402,7 +403,8 @@ class PayfitContentScript extends ContentScript {
       )
       await this.runInWorkerUntilTrue({
         method: 'waitForAccountInLocalStorage',
-        args: [account]
+        args: [account],
+        timeout: 30 * 1000
       })
       await this.goto(baseUrl)
       await this.evaluateInWorker(() => window.location.reload()) // refresh the current page after localStorage update
