@@ -8664,14 +8664,15 @@ var __webpack_exports__ = {};
 __webpack_require__.r(__webpack_exports__);
 /* harmony import */ var cozy_clisk_dist_contentscript__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(1);
 /* harmony import */ var cozy_clisk_dist_contentscript_utils__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(41);
-/* harmony import */ var _cozy_minilog__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(20);
-/* harmony import */ var _cozy_minilog__WEBPACK_IMPORTED_MODULE_2___default = /*#__PURE__*/__webpack_require__.n(_cozy_minilog__WEBPACK_IMPORTED_MODULE_2__);
-/* harmony import */ var p_wait_for__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(18);
-/* harmony import */ var date_fns__WEBPACK_IMPORTED_MODULE_7__ = __webpack_require__(52);
-/* harmony import */ var _interceptor__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(51);
-/* harmony import */ var p_timeout__WEBPACK_IMPORTED_MODULE_5__ = __webpack_require__(19);
-/* harmony import */ var ky_umd__WEBPACK_IMPORTED_MODULE_6__ = __webpack_require__(44);
-/* harmony import */ var ky_umd__WEBPACK_IMPORTED_MODULE_6___default = /*#__PURE__*/__webpack_require__.n(ky_umd__WEBPACK_IMPORTED_MODULE_6__);
+/* harmony import */ var cozy_clisk_dist_libs_wrapTimer__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(42);
+/* harmony import */ var _cozy_minilog__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(20);
+/* harmony import */ var _cozy_minilog__WEBPACK_IMPORTED_MODULE_3___default = /*#__PURE__*/__webpack_require__.n(_cozy_minilog__WEBPACK_IMPORTED_MODULE_3__);
+/* harmony import */ var p_wait_for__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(18);
+/* harmony import */ var date_fns__WEBPACK_IMPORTED_MODULE_8__ = __webpack_require__(52);
+/* harmony import */ var _interceptor__WEBPACK_IMPORTED_MODULE_5__ = __webpack_require__(51);
+/* harmony import */ var p_timeout__WEBPACK_IMPORTED_MODULE_6__ = __webpack_require__(19);
+/* harmony import */ var ky_umd__WEBPACK_IMPORTED_MODULE_7__ = __webpack_require__(44);
+/* harmony import */ var ky_umd__WEBPACK_IMPORTED_MODULE_7___default = /*#__PURE__*/__webpack_require__.n(ky_umd__WEBPACK_IMPORTED_MODULE_7__);
 
 
 
@@ -8681,7 +8682,8 @@ __webpack_require__.r(__webpack_exports__);
 
 
 
-const interceptor = new _interceptor__WEBPACK_IMPORTED_MODULE_4__["default"]([
+
+const interceptor = new _interceptor__WEBPACK_IMPORTED_MODULE_5__["default"]([
   {
     label: 'accountList',
     method: 'GET',
@@ -8719,8 +8721,8 @@ const interceptor = new _interceptor__WEBPACK_IMPORTED_MODULE_4__["default"]([
 ])
 interceptor.init()
 
-const log = _cozy_minilog__WEBPACK_IMPORTED_MODULE_2___default()('ContentScript')
-_cozy_minilog__WEBPACK_IMPORTED_MODULE_2___default().enable('payfitCCC')
+const log = _cozy_minilog__WEBPACK_IMPORTED_MODULE_3___default()('ContentScript')
+_cozy_minilog__WEBPACK_IMPORTED_MODULE_3___default().enable('payfitCCC')
 
 let FORCE_FETCH_ALL = false
 
@@ -8732,6 +8734,25 @@ const burgerButtonSVGSelector =
   '[d="M2 15.5v2h20v-2H2zm0-5v2h20v-2H2zm0-5v2h20v-2H2z"]'
 
 class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTED_MODULE_0__.ContentScript {
+  constructor() {
+    super()
+    const logInfo = message => this.log('info', message)
+    const wrapTimerInfo = (0,cozy_clisk_dist_libs_wrapTimer__WEBPACK_IMPORTED_MODULE_2__.wrapTimerFactory)({ logFn: logInfo })
+
+    this.showAccountSwitchPage = wrapTimerInfo(this, 'showAccountSwitchPage')
+    this.waitForInterception = wrapTimerInfo(this, 'waitForInterception')
+    this.navigateToLoginForm = wrapTimerInfo(this, 'navigateToLoginForm')
+    this.autoLogin = wrapTimerInfo(this, 'autoLogin')
+    this.waitForClearedLocalStorage = wrapTimerInfo(
+      this,
+      'waitForClearedLocalStorage'
+    )
+    this.waitForAccountInLocalStorage = wrapTimerInfo(
+      this,
+      'waitForAccountInLocalStorage'
+    )
+    this.fetchPayslips = wrapTimerInfo(this, 'fetchPayslips')
+  }
   async init(options) {
     await super.init(options)
     interceptor.on('response', response => {
@@ -8753,7 +8774,7 @@ class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTE
       this.bridge.addEventListener('workerEvent', listener)
     })
 
-    return (0,p_timeout__WEBPACK_IMPORTED_MODULE_5__["default"])(interceptionPromise, {
+    return (0,p_timeout__WEBPACK_IMPORTED_MODULE_6__["default"])(interceptionPromise, {
       milliseconds: timeout,
       message: `Timed out after waiting ${timeout}ms for interception of ${label}`
     })
@@ -8961,11 +8982,12 @@ class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTE
    * really cleared
    */
   async waitForClearedLocalStorage() {
-    await (0,p_wait_for__WEBPACK_IMPORTED_MODULE_3__["default"])(() => Object.keys(window.localStorage).length === 0, {
+    this.log('debug', '🔧 waitForClearedLocalStorage')
+    await (0,p_wait_for__WEBPACK_IMPORTED_MODULE_4__["default"])(() => Object.keys(window.localStorage).length === 0, {
       interval: 1000,
       timeout: {
         milliseconds: 10 * 1000,
-        message: new p_wait_for__WEBPACK_IMPORTED_MODULE_3__.TimeoutError(
+        message: new p_wait_for__WEBPACK_IMPORTED_MODULE_4__.TimeoutError(
           `waitForClearedLocalStorage timed out after ${10 * 1000}ms`
         )
       }
@@ -8974,22 +8996,26 @@ class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTE
   }
 
   async showAccountSwitchPage() {
-    // force the account choice page
+    // force the account choice page by clearing the localStorage when needed
+    const currentUrl = await this.evaluateInWorker(() => window.location.href)
     await this.evaluateInWorker(() => window.localStorage.clear())
     await this.runInWorkerUntilTrue({
-      method: 'waitForClearedLocalStorage'
+      method: 'waitForClearedLocalStorage',
+      timeout: 30 * 1000
     })
-    await this.goto(baseUrl)
-    await this.evaluateInWorker(() => window.location.reload()) // refresh the current page after localStorage update
+    if (currentUrl !== baseUrl) {
+      await this.goto(baseUrl)
+    } else {
+      await this.evaluateInWorker(() => window.location.reload()) // refresh the current page after localStorage update
+    }
     const accountList = await this.waitForInterception('accountList')
-    return accountList
+    this.store.accountList = accountList.response
   }
 
   async getUserDataFromWebsite() {
     this.log('info', '🤖 getUserDataFromWebsite')
 
-    const accountList = await this.showAccountSwitchPage()
-    this.store.accountList = accountList.response
+    await this.showAccountSwitchPage()
 
     // find the user email in store or saved credentials
     const sourceAccountIdentifier =
@@ -9055,7 +9081,8 @@ class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTE
       )
       await this.runInWorkerUntilTrue({
         method: 'waitForAccountInLocalStorage',
-        args: [account]
+        args: [account],
+        timeout: 30 * 1000
       })
       await this.goto(baseUrl)
       await this.evaluateInWorker(() => window.location.reload()) // refresh the current page after localStorage update
@@ -9084,7 +9111,8 @@ class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTE
   }
 
   async waitForAccountInLocalStorage(expectedAccount) {
-    await (0,p_wait_for__WEBPACK_IMPORTED_MODULE_3__["default"])(
+    this.log('debug', '🔧 waitForAccountInLocalStorage')
+    await (0,p_wait_for__WEBPACK_IMPORTED_MODULE_4__["default"])(
       () => {
         const account = JSON.parse(
           window.localStorage.getItem('accountChoice') || '{}'
@@ -9098,7 +9126,7 @@ class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTE
         interval: 1000,
         timeout: {
           milliseconds: 10 * 1000,
-          message: new p_wait_for__WEBPACK_IMPORTED_MODULE_3__.TimeoutError(
+          message: new p_wait_for__WEBPACK_IMPORTED_MODULE_4__.TimeoutError(
             `waitForAccountInLocalStorage timed out after ${10 * 1000}ms`
           )
         }
@@ -9114,14 +9142,14 @@ class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTE
 
     const token = window.payFitKonnectorToken
 
-    const nextUrlDocument = await ky_umd__WEBPACK_IMPORTED_MODULE_6___default().get(entry.fileurl, {
+    const nextUrlDocument = await ky_umd__WEBPACK_IMPORTED_MODULE_7___default().get(entry.fileurl, {
         headers: {
           Authorization: 'Bearer ' + token
         }
       })
       .json()
 
-    const blob = await ky_umd__WEBPACK_IMPORTED_MODULE_6___default().get('https://api.payfit.com/files' + nextUrlDocument.url, {
+    const blob = await ky_umd__WEBPACK_IMPORTED_MODULE_7___default().get('https://api.payfit.com/files' + nextUrlDocument.url, {
         headers: {
           Authorization: 'Bearer ' + token
         }
@@ -9148,12 +9176,12 @@ class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTE
       .map(fileDocument => {
         const vendorId = fileDocument.id
         const date = getDateFromAbsoluteMonth(fileDocument.absoluteMonth)
-        const filename = `${companyName}_${(0,date_fns__WEBPACK_IMPORTED_MODULE_7__["default"])(
+        const filename = `${companyName}_${(0,date_fns__WEBPACK_IMPORTED_MODULE_8__["default"])(
           date,
           'yyyy_MM'
         )}_${vendorId.slice(-5)}.pdf`
         return {
-          date: (0,date_fns__WEBPACK_IMPORTED_MODULE_7__["default"])(date, 'yyyy-MM-dd'),
+          date: (0,date_fns__WEBPACK_IMPORTED_MODULE_8__["default"])(date, 'yyyy-MM-dd'),
           vendorId: fileDocument.id,
           vendorRef: vendorId,
           companyName,
@@ -9188,7 +9216,7 @@ class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTE
 
   async waitFor2FA() {
     this.log('info', 'waitFor2FA starts')
-    await (0,p_wait_for__WEBPACK_IMPORTED_MODULE_3__["default"])(
+    await (0,p_wait_for__WEBPACK_IMPORTED_MODULE_4__["default"])(
       () => {
         if (document.querySelector(burgerButtonSVGSelector)) {
           this.log('info', '2FA OK - Land on home')
