@@ -1,14 +1,15 @@
-import { ContentScript } from 'cozy-clisk/dist/contentscript'
+import {
+  ContentScript,
+  RequestInterceptor
+} from 'cozy-clisk/dist/contentscript'
 import { blobToBase64 } from 'cozy-clisk/dist/contentscript/utils'
 import { wrapTimerFactory } from 'cozy-clisk/dist/libs/wrapTimer'
 import Minilog from '@cozy/minilog'
 import waitFor, { TimeoutError } from 'p-wait-for'
 import { format } from 'date-fns'
-import RequestInterceptor from './interceptor'
-import pTimeout from 'p-timeout'
 import ky from 'ky/umd'
 
-const interceptor = new RequestInterceptor([
+const requestInterceptor = new RequestInterceptor([
   {
     label: 'accountList',
     method: 'GET',
@@ -44,7 +45,7 @@ const interceptor = new RequestInterceptor([
     exact: true
   }
 ])
-interceptor.init()
+requestInterceptor.init()
 
 const log = Minilog('ContentScript')
 Minilog.enable('payfitCCC')
@@ -59,13 +60,12 @@ const burgerButtonSVGSelector =
   '[d="M2 15.5v2h20v-2H2zm0-5v2h20v-2H2zm0-5v2h20v-2H2z"]'
 
 class PayfitContentScript extends ContentScript {
-  constructor() {
-    super()
+  constructor(options) {
+    super(options)
     const logInfo = message => this.log('info', message)
     const wrapTimerInfo = wrapTimerFactory({ logFn: logInfo })
 
     this.showAccountSwitchPage = wrapTimerInfo(this, 'showAccountSwitchPage')
-    this.waitForInterception = wrapTimerInfo(this, 'waitForInterception')
     this.navigateToLoginForm = wrapTimerInfo(this, 'navigateToLoginForm')
     this.autoLogin = wrapTimerInfo(this, 'autoLogin')
     this.waitForClearedLocalStorage = wrapTimerInfo(
@@ -77,32 +77,6 @@ class PayfitContentScript extends ContentScript {
       'waitForAccountInLocalStorage'
     )
     this.fetchPayslips = wrapTimerInfo(this, 'fetchPayslips')
-  }
-  async init(options) {
-    await super.init(options)
-    interceptor.on('response', response => {
-      this.bridge.emit('workerEvent', {
-        event: 'interceptedResponse',
-        payload: response
-      })
-    })
-  }
-  waitForInterception(label, options = {}) {
-    const timeout = options?.timeout ?? 30000
-    const interceptionPromise = new Promise(resolve => {
-      const listener = ({ event, payload }) => {
-        if (event === 'interceptedResponse' && payload.label === label) {
-          this.bridge.removeEventListener('workerEvent', listener)
-          resolve(payload)
-        }
-      }
-      this.bridge.addEventListener('workerEvent', listener)
-    })
-
-    return pTimeout(interceptionPromise, {
-      milliseconds: timeout,
-      message: `Timed out after waiting ${timeout}ms for interception of ${label}`
-    })
   }
   addSubmitButtonListener() {
     const formElement = document.querySelector('form')
@@ -333,7 +307,7 @@ class PayfitContentScript extends ContentScript {
     } else {
       await this.evaluateInWorker(() => window.location.reload()) // refresh the current page after localStorage update
     }
-    const accountList = await this.waitForInterception('accountList')
+    const accountList = await this.waitForRequestInterception('accountList')
     this.store.accountList = accountList.response
   }
 
@@ -411,7 +385,7 @@ class PayfitContentScript extends ContentScript {
       })
       await this.goto(baseUrl)
       await this.evaluateInWorker(() => window.location.reload()) // refresh the current page after localStorage update
-      const userInfos = await this.waitForInterception('userInfos')
+      const userInfos = await this.waitForRequestInterception('userInfos')
       await this.fetchPayslips({
         context,
         account,
@@ -423,8 +397,8 @@ class PayfitContentScript extends ContentScript {
     if (FORCE_FETCH_ALL) {
       // save identity only when FORCE_FETCH_ALL === true to favor fast execution as much as possible
       const [userSettings, personnalInformations] = await Promise.all([
-        this.waitForInterception('userSettings'),
-        this.waitForInterception('personnalInformations'),
+        this.waitForRequestInterception('userSettings'),
+        this.waitForRequestInterception('personnalInformations'),
         this.goto(personalInfosUrl)
       ])
       const parsedIdentity = this.parseIdentity({
@@ -489,7 +463,7 @@ class PayfitContentScript extends ContentScript {
   async fetchPayslips({ context, account, userInfos, FORCE_FETCH_ALL }) {
     this.log('info', '📍️ fetchPayslips starts')
     const [filesList] = await Promise.all([
-      this.waitForInterception('filesList'),
+      this.waitForRequestInterception('filesList'),
       this.goto(payslipsUrl)
     ])
     const token = filesList.requestHeaders.Authorization.split(' ').pop()
@@ -651,7 +625,7 @@ function getDateFromAbsoluteMonth(absoluteMonth) {
   return new Date(2015, absoluteMonth - 1)
 }
 
-const connector = new PayfitContentScript()
+const connector = new PayfitContentScript({ requestInterceptor })
 connector
   .init({
     additionalExposedMethodsNames: [
