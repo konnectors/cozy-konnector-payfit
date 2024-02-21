@@ -11,34 +11,34 @@ import ky from 'ky/umd'
 
 const requestInterceptor = new RequestInterceptor([
   {
-    label: 'accountList',
+    identifier: 'accountList',
     method: 'GET',
     url: 'auth/auth0/accounts',
     serialization: 'json'
   },
   {
-    label: 'personnalInformations',
+    identifier: 'personnalInformations',
     method: 'GET',
     url: 'https://api.payfit.com/hr/user-settings/personal-information',
     serialization: 'json',
     exact: true
   },
   {
-    label: 'userInfos',
+    identifier: 'userInfos',
     method: 'POST',
     url: 'https://api.payfit.com/hr/user/info',
     serialization: 'json',
     exact: true
   },
   {
-    label: 'userSettings',
+    identifier: 'userSettings',
     method: 'GET',
     url: 'https://api.payfit.com/hr/user-settings',
     serialization: 'json',
     exact: true
   },
   {
-    label: 'filesList',
+    identifier: 'filesList',
     method: 'POST',
     url: 'https://api.payfit.com/files/files',
     serialization: 'json',
