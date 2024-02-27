@@ -9206,38 +9206,37 @@ __webpack_require__.r(__webpack_exports__);
 
 const requestInterceptor = new cozy_clisk_dist_contentscript__WEBPACK_IMPORTED_MODULE_0__.RequestInterceptor([
   {
-    label: 'accountList',
+    identifier: 'accountList',
     method: 'GET',
     url: 'auth/auth0/accounts',
     serialization: 'json'
   },
   {
-    label: 'personnalInformations',
+    identifier: 'personnalInformations',
     method: 'GET',
     url: 'https://api.payfit.com/hr/user-settings/personal-information',
     serialization: 'json',
     exact: true
   },
   {
-    label: 'userInfos',
+    identifier: 'userInfos',
     method: 'POST',
     url: 'https://api.payfit.com/hr/user/info',
     serialization: 'json',
     exact: true
   },
   {
-    label: 'userSettings',
+    identifier: 'userSettings',
     method: 'GET',
     url: 'https://api.payfit.com/hr/user-settings',
     serialization: 'json',
     exact: true
   },
   {
-    label: 'filesList',
-    method: 'POST',
-    url: 'https://api.payfit.com/files/files',
-    serialization: 'json',
-    exact: true
+    identifier: 'filesList',
+    method: 'GET',
+    url: 'https://api.payfit.com/payroll-bff/payslip/definitive?employeeId=',
+    serialization: 'json'
   }
 ])
 requestInterceptor.init()
@@ -9562,7 +9561,6 @@ class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTE
     this.store.accountList.sort(
       (a, b) => (getContractStart(a) < getContractStart(b) ? 1 : -1) // will fetch latest contract first
     )
-
     if (!FORCE_FETCH_ALL) {
       // only fetch the last contract in date
       this.store.accountList = this.store.accountList.slice(0, 1)
@@ -9666,26 +9664,29 @@ class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTE
     )
     const companyName = account.companyInfo.name
     const fileDocuments = filesList.response
-      .sort((a, b) => (a.absoluteMonth < b.absoluteMonth ? 1 : -1)) // will fetch newest payslips first
+      .sort((a, b) => (a.payMonth < b.payMonth ? 1 : -1)) // will fetch newest payslips first
       .map(fileDocument => {
-        const vendorId = fileDocument.id
-        const date = getDateFromAbsoluteMonth(fileDocument.absoluteMonth)
+        const vendorId = fileDocument.payslipFileId
+        const payslipDate = new Date(
+          `${fileDocument.payYear}/${fileDocument.payMonth}`
+        )
         const filename = `${companyName}_${(0,date_fns__WEBPACK_IMPORTED_MODULE_6__.format)(
-          date,
+          payslipDate,
           'yyyy_MM'
         )}_${vendorId.slice(-5)}.pdf`
         return {
-          date: (0,date_fns__WEBPACK_IMPORTED_MODULE_6__.format)(date, 'yyyy-MM-dd'),
-          vendorId: fileDocument.id,
+          date: (0,date_fns__WEBPACK_IMPORTED_MODULE_6__.format)(payslipDate, 'yyyy-MM-dd'),
+          vendorId: fileDocument.payslipFileId,
           vendorRef: vendorId,
           companyName,
           filename,
           recurrence: 'monthly',
-          fileurl: `https://api.payfit.com/files/file/${fileDocument.id}/presigned-url?attachment=1`,
+          fileurl: `https://api.payfit.com/files/file/${fileDocument.payslipFileId}/presigned-url?attachment=1`,
           fileAttributes: {
             metadata: {
               contentAuthor: 'payfit.com',
-              issueDate: new Date(fileDocument.createdAt),
+              // No more "createdAt" data in the intercepted JSON so fallback on the 1st of the month
+              issueDate: (0,date_fns__WEBPACK_IMPORTED_MODULE_6__.format)(payslipDate, 'yyyy-MM-dd'),
               carbonCopy: true
             }
           }
@@ -9812,10 +9813,6 @@ class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTE
 
     return address
   }
-}
-
-function getDateFromAbsoluteMonth(absoluteMonth) {
-  return new Date(2015, absoluteMonth - 1)
 }
 
 const connector = new PayfitContentScript({ requestInterceptor })
