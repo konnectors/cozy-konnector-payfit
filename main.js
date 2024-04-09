@@ -9426,7 +9426,7 @@ class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTE
   }
 
   async checkAuthenticated() {
-    this.log('debug', '🤖 checkAuthenticated')
+    this.log('info', '🤖 checkAuthenticated')
     if (document.querySelector('#code')) {
       this.log('info', 'Login OK - 2FA needed, wait for user action')
       return true
@@ -9443,7 +9443,7 @@ class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTE
   }
 
   async showLoginFormAndWaitForAuthentication() {
-    log.debug('showLoginFormAndWaitForAuthentication start')
+    this.log('info', '📍️ showLoginFormAndWaitForAuthentication starts')
     await this.setWorkerState({ visible: true })
     await this.runInWorkerUntilTrue({
       method: 'waitForAuthenticated'
@@ -9452,7 +9452,7 @@ class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTE
   }
 
   async show2FAFormAndWaitForInput() {
-    log.debug('show2FAFormAndWaitForInput start')
+    this.log('info', '📍️ show2FAFormAndWaitForInput starts')
     await this.setWorkerState({ visible: true })
     await this.runInWorkerUntilTrue({ method: 'waitFor2FA' })
     await this.setWorkerState({ visible: false })
@@ -9495,22 +9495,28 @@ class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTE
    */
   async waitForClearedLocalStorage() {
     this.log('debug', '🔧 waitForClearedLocalStorage')
-    await (0,p_wait_for__WEBPACK_IMPORTED_MODULE_4__["default"])(() => Object.keys(window.localStorage).length === 0, {
-      interval: 1000,
-      timeout: {
-        milliseconds: 10 * 1000,
-        message: new p_wait_for__WEBPACK_IMPORTED_MODULE_4__.TimeoutError(
-          `waitForClearedLocalStorage timed out after ${10 * 1000}ms`
-        )
+    await (0,p_wait_for__WEBPACK_IMPORTED_MODULE_4__["default"])(
+      () => {
+        window.localStorage.clear()
+        return Object.keys(window.localStorage).length === 0
+      },
+      {
+        interval: 1000,
+        timeout: {
+          milliseconds: 10 * 1000,
+          message: new p_wait_for__WEBPACK_IMPORTED_MODULE_4__.TimeoutError(
+            `waitForClearedLocalStorage timed out after ${10 * 1000}ms`
+          )
+        }
       }
-    })
+    )
     return true
   }
 
   async showAccountSwitchPage() {
+    this.log('info', '📍️ showAccountSwitchPage starts')
     // force the account choice page by clearing the localStorage when needed
     const currentUrl = await this.evaluateInWorker(() => window.location.href)
-    await this.evaluateInWorker(() => window.localStorage.clear())
     await this.runInWorkerUntilTrue({
       method: 'waitForClearedLocalStorage',
       timeout: 30 * 1000
@@ -9580,6 +9586,9 @@ class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTE
     this.store.accountList.sort(
       (a, b) => (getContractStart(a) < getContractStart(b) ? 1 : -1) // will fetch latest contract first
     )
+    // /////////TOREMOVE////////////
+    FORCE_FETCH_ALL = true
+    // /////////TOREMOVE////////////
     if (!FORCE_FETCH_ALL) {
       // only fetch the last contract in date
       this.store.accountList = this.store.accountList.slice(0, 1)
@@ -9676,19 +9685,36 @@ class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTE
       this.waitForRequestInterception('filesList'),
       this.goto(payslipsUrl)
     ])
+    this.log('info', '🦜️After Promise.all')
     const token = filesList.requestHeaders.Authorization.split(' ').pop()
+    this.log('info', '🦜️After token')
     await this.evaluateInWorker(
       token => (window.payFitKonnectorToken = token),
       token
     )
+    this.log('info', '🦜️After token setup')
+
     const companyName = account.companyInfo.name
+    this.log(
+      'info',
+      `filesList.length : ${JSON.stringify(filesList.response.length)}`
+    )
     const fileDocuments = filesList.response
       .sort((a, b) => (a.payMonth < b.payMonth ? 1 : -1)) // will fetch newest payslips first
       .map(fileDocument => {
         const vendorId = fileDocument.payslipFileId
+        this.log(
+          'info',
+          `fileDocument.payYear : ${JSON.stringify(fileDocument.payYear)}`
+        )
+        this.log(
+          'info',
+          `fileDocument.payMonth : ${JSON.stringify(fileDocument.payMonth)}`
+        )
         const payslipDate = new Date(
           `${fileDocument.payYear}/${fileDocument.payMonth}`
         )
+        this.log('info', `payslipDate : ${JSON.stringify(payslipDate)}`)
         const filename = `${companyName}_${(0,date_fns__WEBPACK_IMPORTED_MODULE_6__.format)(
           payslipDate,
           'yyyy_MM'
@@ -9729,7 +9755,7 @@ class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTE
   }
 
   async waitFor2FA() {
-    this.log('info', 'waitFor2FA starts')
+    this.log('info', '📍️ waitFor2FA starts')
     await (0,p_wait_for__WEBPACK_IMPORTED_MODULE_4__["default"])(
       () => {
         if (document.querySelector(burgerButtonSVGSelector)) {
