@@ -212,7 +212,7 @@ class PayfitContentScript extends ContentScript {
   }
 
   async checkAuthenticated() {
-    this.log('debug', '🤖 checkAuthenticated')
+    this.log('info', '🤖 checkAuthenticated')
     if (document.querySelector('#code')) {
       this.log('info', 'Login OK - 2FA needed, wait for user action')
       return true
@@ -229,7 +229,7 @@ class PayfitContentScript extends ContentScript {
   }
 
   async showLoginFormAndWaitForAuthentication() {
-    log.debug('showLoginFormAndWaitForAuthentication start')
+    this.log('info', '📍️ showLoginFormAndWaitForAuthentication starts')
     await this.setWorkerState({ visible: true })
     await this.runInWorkerUntilTrue({
       method: 'waitForAuthenticated'
@@ -238,7 +238,7 @@ class PayfitContentScript extends ContentScript {
   }
 
   async show2FAFormAndWaitForInput() {
-    log.debug('show2FAFormAndWaitForInput start')
+    this.log('info', '📍️ show2FAFormAndWaitForInput starts')
     await this.setWorkerState({ visible: true })
     await this.runInWorkerUntilTrue({ method: 'waitFor2FA' })
     await this.setWorkerState({ visible: false })
@@ -281,22 +281,28 @@ class PayfitContentScript extends ContentScript {
    */
   async waitForClearedLocalStorage() {
     this.log('debug', '🔧 waitForClearedLocalStorage')
-    await waitFor(() => Object.keys(window.localStorage).length === 0, {
-      interval: 1000,
-      timeout: {
-        milliseconds: 10 * 1000,
-        message: new TimeoutError(
-          `waitForClearedLocalStorage timed out after ${10 * 1000}ms`
-        )
+    await waitFor(
+      () => {
+        window.localStorage.clear()
+        return Object.keys(window.localStorage).length === 0
+      },
+      {
+        interval: 1000,
+        timeout: {
+          milliseconds: 10 * 1000,
+          message: new TimeoutError(
+            `waitForClearedLocalStorage timed out after ${10 * 1000}ms`
+          )
+        }
       }
-    })
+    )
     return true
   }
 
   async showAccountSwitchPage() {
+    this.log('info', '📍️ showAccountSwitchPage starts')
     // force the account choice page by clearing the localStorage when needed
     const currentUrl = await this.evaluateInWorker(() => window.location.href)
-    await this.evaluateInWorker(() => window.localStorage.clear())
     await this.runInWorkerUntilTrue({
       method: 'waitForClearedLocalStorage',
       timeout: 30 * 1000
@@ -470,12 +476,19 @@ class PayfitContentScript extends ContentScript {
       token
     )
     const companyName = account.companyInfo.name
+    this.log(
+      'info',
+      `filesList.length : ${JSON.stringify(filesList.response.length)}`
+    )
     const fileDocuments = filesList.response
       .sort((a, b) => (a.payMonth < b.payMonth ? 1 : -1)) // will fetch newest payslips first
       .map(fileDocument => {
         const vendorId = fileDocument.payslipFileId
+        // some navigator are not accepting the previous way of building the date, this way must fix this.
+        // Also ensuring they are numbers for good measure
         const payslipDate = new Date(
-          `${fileDocument.payYear}/${fileDocument.payMonth}`
+          Number(fileDocument.payYear),
+          Number(fileDocument.payMonth) - 1
         )
         const filename = `${companyName}_${format(
           payslipDate,
@@ -517,7 +530,7 @@ class PayfitContentScript extends ContentScript {
   }
 
   async waitFor2FA() {
-    this.log('info', 'waitFor2FA starts')
+    this.log('info', '📍️ waitFor2FA starts')
     await waitFor(
       () => {
         if (document.querySelector(burgerButtonSVGSelector)) {
