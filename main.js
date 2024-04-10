@@ -9705,16 +9705,24 @@ class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTE
         const vendorId = fileDocument.payslipFileId
         this.log(
           'info',
-          `fileDocument.payYear : ${JSON.stringify(fileDocument.payYear)}`
+          `fileDocument.payYear : ${Number(fileDocument.payYear)}`
         )
         this.log(
           'info',
-          `fileDocument.payMonth : ${JSON.stringify(fileDocument.payMonth)}`
+          `fileDocument.payMonth : ${Number(fileDocument.payMonth)}`
         )
         const payslipDate = new Date(
-          `${fileDocument.payYear}/${fileDocument.payMonth}`
+          Number(fileDocument.payYear),
+          Number(fileDocument.payMonth) - 1,
+          '01'
         )
         this.log('info', `payslipDate : ${JSON.stringify(payslipDate)}`)
+        this.log(
+          'info',
+          `format(payslipDate, 'yyyy-MM-dd') : ${JSON.stringify(
+            (0,date_fns__WEBPACK_IMPORTED_MODULE_6__.format)(payslipDate, 'yyyy-MM-dd')
+          )}`
+        )
         const filename = `${companyName}_${(0,date_fns__WEBPACK_IMPORTED_MODULE_6__.format)(
           payslipDate,
           'yyyy_MM'
