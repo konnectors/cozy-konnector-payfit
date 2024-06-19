@@ -470,7 +470,14 @@ class PayfitContentScript extends ContentScript {
       this.waitForRequestInterception('filesList'),
       this.goto(payslipsUrl)
     ])
-    const token = filesList.requestHeaders.Authorization.split(' ').pop()
+    let token
+    const authorizationHeader = filesList.requestHeaders?.Authorization
+    if (authorizationHeader) {
+      token = filesList.requestHeaders.Authorization.split(' ').pop()
+    } else {
+      const tokenInArray = await this.findTokenInArray(filesList.requestHeaders)
+      token = tokenInArray.split(' ').pop()
+    }
     await this.evaluateInWorker(
       token => (window.payFitKonnectorToken = token),
       token
@@ -527,6 +534,17 @@ class PayfitContentScript extends ContentScript {
       qualificationLabel: 'pay_sheet',
       subPath
     })
+  }
+
+  async findTokenInArray(requestHeaders) {
+    this.log('info', '📍️ findTokenInArray starts')
+    // Sometimes website return requestHeaders in nested arrays, we need to extract it otherwise when detecting it
+    for (const entry of requestHeaders) {
+      if (entry[0] === 'Authorization') {
+        return entry[1]
+      }
+    }
+    this.log('warn', 'Cannot find token in nestedArrays requestHeaders')
   }
 
   async waitFor2FA() {
