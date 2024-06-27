@@ -1,5 +1,5 @@
 {
-  "version": "2.11.0",
+  "version": "2.13.0",
   "name": "Payfit",
   "type": "konnector",
   "language": "node",
@@ -9,7 +9,7 @@
   "editor": "Cozy",
   "vendor_link": "https://app.payfit.com/",
   "categories": [
-    "online_services"
+    "finance"
   ],
   "fields": {},
   "clientSide": true,
