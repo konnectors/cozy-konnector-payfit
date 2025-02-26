@@ -13,7 +13,7 @@ const requestInterceptor = new RequestInterceptor([
   {
     identifier: 'accountList',
     method: 'GET',
-    url: 'auth/auth0/accounts',
+    url: 'individuals-bff/auth0/accounts',
     serialization: 'json'
   },
   {
