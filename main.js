@@ -9291,7 +9291,7 @@ const requestInterceptor = new cozy_clisk_dist_contentscript__WEBPACK_IMPORTED_M
   {
     identifier: 'accountList',
     method: 'GET',
-    url: 'auth/auth0/accounts',
+    url: 'individuals-bff/auth0/accounts',
     serialization: 'json'
   },
   {
