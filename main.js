@@ -9333,8 +9333,7 @@ const baseUrl = 'https://app.payfit.com/'
 const payslipsUrl = `${baseUrl}payslips/`
 const personalInfosUrl = `${baseUrl}settings/profile`
 
-const burgerButtonSVGSelector =
-  '[d="M2 15.5v2h20v-2H2zm0-5v2h20v-2H2zm0-5v2h20v-2H2z"]'
+const appMenubutton = '#app-menu-profile-button'
 
 class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTED_MODULE_0__.ContentScript {
   constructor(options) {
@@ -9424,7 +9423,7 @@ class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTE
     await this.PromiseRaceWithError(
       [
         this.waitForElementInWorker('#username'),
-        this.waitForElementInWorker(burgerButtonSVGSelector),
+        this.waitForElementInWorker(appMenubutton),
         this.waitForElementInWorker('button[data-testid="accountButton"]')
       ],
       'navigateToLoginForm: waiting for default page load'
@@ -9499,7 +9498,7 @@ class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTE
       this.log('info', 'Login OK - Account selection needed')
       return true
     }
-    if (document.querySelector(burgerButtonSVGSelector)) {
+    if (document.querySelector(appMenubutton)) {
       this.log('info', 'Login OK')
       return true
     }
@@ -9545,7 +9544,7 @@ class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTE
     await this.runInWorker('click', passwordSubmitButtonSelector)
     await this.PromiseRaceWithError(
       [
-        this.waitForElementInWorker(burgerButtonSVGSelector),
+        this.waitForElementInWorker(appMenubutton),
         this.waitForElementInWorker('#code'),
         this.waitForElementInWorker('button[data-testid="accountButton"]')
       ],
@@ -9827,7 +9826,7 @@ class PayfitContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPORTE
     this.log('info', '📍️ waitFor2FA starts')
     await (0,p_wait_for__WEBPACK_IMPORTED_MODULE_4__["default"])(
       () => {
-        if (document.querySelector(burgerButtonSVGSelector)) {
+        if (document.querySelector(appMenubutton)) {
           this.log('info', '2FA OK - Land on home')
           return true
         } else if (
