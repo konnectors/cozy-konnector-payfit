@@ -1,3 +1,11 @@
+# Connector config
+.account
+.token.json
+konnector-dev-config.json*
+fixtures/*
+data/*
+.env
+
 # NPM
 node_modules/
 npm-debug.log
@@ -15,6 +23,7 @@ build/
 ehthumbs.db
 Thumbs.db
 desktop.ini
+
 
 # Editors / IDEs
 .floo
