@@ -3742,6 +3742,11 @@ p-wait-for@^5.0.2:
   dependencies:
     p-timeout "^6.0.0"
 
+p-wait-for@^7.0.0:
+  version "7.0.0"
+  resolved "https://registry.yarnpkg.com/p-wait-for/-/p-wait-for-7.0.0.tgz#0e94ef6e42e56d816d0ff1f74970798143a3a734"
+  integrity sha512-zDQ/3GyUFSwklDAT7jeBu4FQgxw0o0yayyP4qizTl5yDYlAWbk71npDC1zhOqD4iqnEN2/4Ssr8Xc2aUQtvdAg==
+
 parent-module@^1.0.0:
   version "1.0.1"
   resolved "https://registry.yarnpkg.com/parent-module/-/parent-module-1.0.1.tgz#691d2709e78c79fae3a156622452d00762caaaa2"
